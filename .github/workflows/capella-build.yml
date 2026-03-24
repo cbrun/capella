@@ -1,0 +1,395 @@
+name: capella-build
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      test_scope:
+        description: "Scope selector for UI validation"
+        required: false
+        default: full
+        type: choice
+        options:
+          - focused-failures
+          - full
+
+permissions:
+  contents: write
+  checks: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 480
+    defaults:
+      run:
+        working-directory: .
+
+    env:
+      MAVEN_OPTS: -Xmx2g
+      # Pin the mutable CBI targetplatform nightly URL for reproducibility.
+      CBI_TPD_PIN: https://download.eclipse.org/cbi/updates/tpd/nightly/N202501210845
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Show toolchain versions
+        run: |
+          java -version
+          mvn -version
+
+      - name: Pin target-platform converter repository URL
+        run: |
+          sed -i "s#https://download.eclipse.org/cbi/updates/tpd/nightly/latest#${CBI_TPD_PIN}#g" releng/plugins/org.polarsys.capella.targets/pom.xml
+          grep -n "cbi/updates/tpd/nightly" releng/plugins/org.polarsys.capella.targets/pom.xml
+
+      - name: Generate target platform (.target from .targetplatform)
+        run: mvn -B -V clean verify -f releng/plugins/org.polarsys.capella.targets/pom.xml
+
+      - name: Download and install Temurin JREs for Java 17 product packaging
+        shell: bash
+        run: |
+          chmod +x scripts/prepare-product-jres.sh
+          scripts/prepare-product-jres.sh --java-major 17 --clean
+
+      - name: Build and package (Tycho full reactor on Java 21, Java 17 product)
+        run: mvn -B -V verify -Pfull
+
+      - name: Verify packaged archives exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="releng/plugins/org.polarsys.capella.rcp.product/target/products"
+          ls -lah "$base" || true
+
+          check_pattern() {
+            local pattern="$1"
+            if ! compgen -G "$pattern" > /dev/null; then
+              echo "Missing expected files for pattern: $pattern"
+              exit 1
+            fi
+            echo "Matched files for $pattern"
+            ls -1 $pattern
+          }
+
+          check_pattern "$base/capella-*linux*.tar.gz"
+          check_pattern "$base/capella-*macosx*.tar.gz"
+          check_pattern "$base/capella-*win32*.zip"
+
+      - name: Verify packaged Linux product runtime is Java 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="releng/plugins/org.polarsys.capella.rcp.product/target/products"
+          product_tar="$(find "$base" -maxdepth 1 -type f -name 'capella-*linux-gtk-x86_64*.tar.gz' | head -n 1)"
+          test -n "$product_tar"
+          rm -rf runtime-check
+          mkdir -p runtime-check
+          tar -xzf "$product_tar" -C runtime-check
+          runtime-check/capella/jre/bin/java -version 2>&1 | tee runtime-check/product-java-version.txt
+          runtime-check/capella/jre/bin/java -version 2>&1 | grep -q 'version "17\.'
+
+      - name: Upload Linux x86_64 packaged product
+        uses: actions/upload-artifact@v4
+        with:
+          name: capella-product-linux-x86_64
+          if-no-files-found: error
+          compression-level: 0
+          path: releng/plugins/org.polarsys.capella.rcp.product/target/products/capella-*linux-gtk-x86_64.tar.gz
+
+      - name: Upload packaged product archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: capella-packaged-products
+          if-no-files-found: error
+          compression-level: 0
+          path: |
+            releng/plugins/org.polarsys.capella.rcp.product/target/products/capella-*linux-gtk-*.tar.gz
+            releng/plugins/org.polarsys.capella.rcp.product/target/products/capella-*macosx-cocoa-*.tar.gz
+            releng/plugins/org.polarsys.capella.rcp.product/target/products/capella-*win32-win32-x86_64.zip
+
+      - name: Upload product BOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: capella-product-bom
+          if-no-files-found: error
+          path: releng/plugins/org.polarsys.capella.rcp.product/target/bom.json
+
+      - name: Upload p2 repositories
+        uses: actions/upload-artifact@v4
+        with:
+          name: capella-update-sites
+          if-no-files-found: error
+          path: |
+            releng/plugins/org.polarsys.capella.rcp.site/target/repository/**
+            releng/plugins/org.polarsys.capella.test.site/target/repository/**
+            releng/plugins/org.polarsys.capella.egf.site/target/repository/**
+
+      - name: Upload Capella full target/update-site definition
+        uses: actions/upload-artifact@v4
+        with:
+          name: capella-target-platform
+          if-no-files-found: error
+          path: releng/plugins/org.polarsys.capella.targets/full/*
+
+  publish-assets:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Download packaged product archives
+        uses: actions/download-artifact@v4
+        with:
+          name: capella-packaged-products
+          path: artifacts/capella-packaged-products
+
+      - name: Prepare canonical product archives for branch release
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="artifacts/capella-packaged-products"
+          out="release-assets"
+          rm -rf "$out"
+          mkdir -p "$out"
+
+          cp "$(find "$base" -type f -name 'capella-*linux-gtk-x86_64.tar.gz' | head -n 1)" "$out/capella-linux-x86_64.tar.gz"
+          cp "$(find "$base" -type f -name 'capella-*linux-gtk-aarch64.tar.gz' | head -n 1)" "$out/capella-linux-aarch64.tar.gz"
+          cp "$(find "$base" -type f -name 'capella-*macosx-cocoa-x86_64.tar.gz' | head -n 1)" "$out/capella-macos-x86_64.tar.gz"
+          cp "$(find "$base" -type f -name 'capella-*macosx-cocoa-aarch64.tar.gz' | head -n 1)" "$out/capella-macos-aarch64.tar.gz"
+          cp "$(find "$base" -type f -name 'capella-*win32-win32-x86_64.zip' | head -n 1)" "$out/capella-windows-x86_64.zip"
+
+          ls -lah "$out"
+
+      - name: Compute rolling branch release tag
+        id: rolling-tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="${GITHUB_REF_NAME}"
+          safe_branch="$(echo "${branch}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')"
+          if [[ -z "${safe_branch}" ]]; then
+            safe_branch="branch"
+          fi
+          branch_hash="$(printf '%s' "${branch}" | sha1sum | cut -c1-8)"
+          tag="ci-${safe_branch}-${branch_hash}-latest"
+          title="Capella CI latest (${branch})"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "title=${title}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish rolling branch release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.rolling-tag.outputs.tag }}
+          name: ${{ steps.rolling-tag.outputs.title }}
+          prerelease: true
+          make_latest: false
+          generate_release_notes: false
+          fail_on_unmatched_files: true
+          body: |
+            Branch: `${{ github.ref_name }}`
+            Commit: `${{ github.sha }}`
+            Build: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          files: |
+            release-assets/capella-linux-x86_64.tar.gz
+            release-assets/capella-linux-aarch64.tar.gz
+            release-assets/capella-macos-x86_64.tar.gz
+            release-assets/capella-macos-aarch64.tar.gz
+            release-assets/capella-windows-x86_64.zip
+
+  ui-tests:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 720
+    env:
+      LANG: en_US.UTF-8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Linux product artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: capella-product-linux-x86_64
+          path: artifacts/capella-product-linux-x86_64
+
+      - name: Download update-sites artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: capella-update-sites
+          path: artifacts/capella-update-sites
+
+      - name: Resolve artifact paths
+        id: paths
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PRODUCT_TAR="$(find artifacts/capella-product-linux-x86_64 -type f \( -name 'capella-linux-x86_64.tar.gz' -o -name 'capella-*linux-gtk-x86_64*.tar.gz' \) | head -n 1)"
+          if [ -z "$PRODUCT_TAR" ]; then
+            echo "Unable to locate Linux product archive in artifacts/capella-product-linux-x86_64"
+            find artifacts/capella-product-linux-x86_64 -maxdepth 4 -type f | sed -n '1,200p'
+            exit 1
+          fi
+
+          TEST_SITE_REPO="$(find artifacts/capella-update-sites -type d -path '*/org.polarsys.capella.test.site/target/repository' | head -n 1)"
+          if [ -z "$TEST_SITE_REPO" ]; then
+            TEST_SITE_REPO="$(find artifacts/capella-update-sites -type d -path '*/org.polarsys.capella.rcp.site/target/repository' | head -n 1)"
+          fi
+          if [ -z "$TEST_SITE_REPO" ]; then
+            echo "Unable to locate test update-site repository in artifacts/capella-update-sites"
+            find artifacts/capella-update-sites -maxdepth 5 -type d | sed -n '1,200p'
+            exit 1
+          fi
+
+          echo "product_tar=$PRODUCT_TAR" >> "$GITHUB_OUTPUT"
+          echo "test_site_repo=$TEST_SITE_REPO" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Linux product archive integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          PRODUCT_TAR="${{ steps.paths.outputs.product_tar }}"
+          echo "Verifying archive: ${PRODUCT_TAR}"
+          ls -lh "${PRODUCT_TAR}"
+          tar -tzf "${PRODUCT_TAR}" >/dev/null
+
+      - name: Build Ubuntu 24.04 UI parity image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -t capella-ui-tests-ubuntu2404:ci -f scripts/docker/ubuntu2404-ui-tests.Dockerfile .
+
+      - name: Run UI and non-UI suites in Ubuntu 24.04 Docker parity
+        shell: bash
+        env:
+          TEST_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.test_scope || 'full' }}
+          JAVA_TOOL_OPTIONS: >-
+            -Dcapella.test.migration.relation.trace=true
+            -Dcapella.test.migration.relation.trace.uiQueue=true
+        run: |
+          set -euo pipefail
+          scripts/run-ui-tests-ubuntu2404.sh \
+            --image-tag capella-ui-tests-ubuntu2404:ci \
+            -- \
+            --scope "${TEST_SCOPE}" \
+            --product-tar "${{ steps.paths.outputs.product_tar }}" \
+            --test-site-repo "${{ steps.paths.outputs.test_site_repo }}" \
+            --timeout-min 60
+
+      - name: Flatten nested JUnit XML for report
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-results/flat
+          python3 - <<'PY'
+          from copy import deepcopy
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          in_dir = Path("test-results")
+          out_dir = in_dir / "flat"
+          xml_files = sorted(p for p in in_dir.glob("*.xml") if p.is_file())
+          if not xml_files:
+            raise SystemExit("No JUnit XML files found in test-results/")
+
+          def all_cases(node):
+            return list(node.findall(".//testcase"))
+
+          def direct_cases(node):
+            return [c for c in list(node) if c.tag == "testcase"]
+
+          def child_suites(node):
+            return [c for c in list(node) if c.tag == "testsuite"]
+
+          def flatten_suite(suite):
+            suites = []
+            cases = direct_cases(suite)
+            if cases:
+              suites.append((suite, cases))
+            for nested in child_suites(suite):
+              suites.extend(flatten_suite(nested))
+            return suites
+
+          in_case_count = 0
+          out_case_count = 0
+          out_suite_count = 0
+
+          for src in xml_files:
+            root = ET.parse(src).getroot()
+            if root.tag == "testsuites":
+              roots = [s for s in list(root) if s.tag == "testsuite"]
+            elif root.tag == "testsuite":
+              roots = [root]
+            else:
+              raise SystemExit(f"{src}: unsupported root tag <{root.tag}>")
+
+            in_case_count += len(all_cases(root))
+            out_root = ET.Element("testsuites")
+            for suite in roots:
+              for original, cases in flatten_suite(suite):
+                attrs = dict(original.attrib)
+                attrs["tests"] = str(len(cases))
+                attrs["failures"] = str(sum(1 for c in cases if c.find("failure") is not None))
+                attrs["errors"] = str(sum(1 for c in cases if c.find("error") is not None))
+                attrs["skipped"] = str(sum(1 for c in cases if c.find("skipped") is not None))
+                if "time" not in attrs:
+                  attrs["time"] = str(sum(float(c.attrib.get("time", "0") or "0") for c in cases))
+
+                out_suite = ET.SubElement(out_root, "testsuite", attrs)
+                for c in cases:
+                  out_suite.append(deepcopy(c))
+                out_case_count += len(cases)
+                out_suite_count += 1
+
+            out_path = out_dir / src.name
+            out_tree = ET.ElementTree(out_root)
+            ET.indent(out_tree, space="  ")
+            out_tree.write(out_path, encoding="utf-8", xml_declaration=True)
+
+          if in_case_count != out_case_count:
+            raise SystemExit(
+              f"Flattening mismatch: in={in_case_count}, out={out_case_count}"
+            )
+
+          print(
+            f"Flattened {len(xml_files)} files into {out_suite_count} flat suites "
+            f"with {out_case_count} testcases."
+          )
+          PY
+
+      - name: Publish UI test report
+        if: ${{ !cancelled() }}
+        uses: dorny/test-reporter@v3
+        with:
+          name: Capella UI tests
+          path: test-results/flat/*.xml
+          reporter: java-junit
+          only-summary: "false"
+          use-actions-summary: "true"
+          fail-on-error: "true"
+          fail-on-empty: "true"
+
+      - name: Upload UI test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capella-ui-test-logs
+          if-no-files-found: warn
+          path: |
+            test-results/**
+            test-workspaces/**/.metadata/.log

@@ -26,6 +26,9 @@ import org.eclipse.jface.action.MenuManager;
 import org.eclipse.jface.viewers.ISelectionProvider;
 import org.eclipse.ui.ISelectionService;
 import org.eclipse.ui.ISources;
+import org.eclipse.ui.IWorkbenchPage;
+import org.eclipse.ui.IWorkbenchPart;
+import org.eclipse.ui.IWorkbenchWindow;
 import org.eclipse.ui.PlatformUI;
 import org.eclipse.ui.internal.PartSite;
 import org.eclipse.ui.menus.IMenuService;
@@ -103,9 +106,18 @@ public class ModalContextMenuExtender {
 
     IMenuService menuService = locator.getService(IMenuService.class);
     menuService.populateContributionManager(contributionManager, location);
-    PartSite.registerContextMenu(location, (MenuManager) contributionManager, provider, false,
-        PlatformUI.getWorkbench().getActiveWorkbenchWindow().getActivePage().getActivePart(), context,
-        new ArrayList<>());
+
+    IWorkbenchWindow activeWindow = PlatformUI.getWorkbench().getActiveWorkbenchWindow();
+    IWorkbenchPage activePage = activeWindow != null ? activeWindow.getActivePage() : null;
+    IWorkbenchPart activePart = activePage != null ? activePage.getActivePart() : null;
+
+    // Modal dialogs can be opened before the workbench exposes an active part.
+    // Context-menu contributions are still populated above; skip the workbench-part
+    // registration in that transient state instead of crashing on a null part.
+    if (activePart != null) {
+      PartSite.registerContextMenu(location, (MenuManager) contributionManager, provider, false, activePart, context,
+          new ArrayList<>());
+    }
   }
 
   /**
