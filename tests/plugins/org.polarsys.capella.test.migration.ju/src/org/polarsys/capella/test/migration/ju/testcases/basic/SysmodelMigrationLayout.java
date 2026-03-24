@@ -15,12 +15,15 @@ package org.polarsys.capella.test.migration.ju.testcases.basic;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IPath;
+import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.emf.common.util.URI;
 import org.eclipse.osgi.util.NLS;
 import org.eclipse.sirius.business.api.session.Session;
+import org.eclipse.sirius.business.api.session.SessionStatus;
 import org.polarsys.capella.test.diagram.common.ju.wrapper.utils.DiagramHelper;
 import org.polarsys.capella.test.diagram.layout.ju.layout.SessionLayout;
 import org.polarsys.capella.test.diagram.layout.ju.layout.compare.CompareLayoutManager;
+import org.polarsys.capella.test.framework.helpers.GuiActions;
 import org.polarsys.capella.test.framework.helpers.IResourceHelpers;
 import org.polarsys.capella.test.migration.ju.helpers.MigrationHelper;
 import org.polarsys.capella.test.migration.ju.model.Sysmodel;
@@ -29,22 +32,33 @@ public class SysmodelMigrationLayout extends Sysmodel {
 
   @Override
   public void test() throws Exception {
-    
-    IProject project = IResourceHelpers.getEclipseProjectInWorkspace(getRequiredTestModels().get(0));
-    
-    if (project.exists()) {
 
+    IProject project = IResourceHelpers.getEclipseProjectInWorkspace(getRequiredTestModels().get(0));
+
+    if (project.exists()) {
       // Activate DOREMI refresh viewpoints
       DiagramHelper.setPreferenceAutoRefresh(true);
       DiagramHelper.setPrefereneRefreshOnOpening(true);
 
       MigrationHelper.migrateProject(project);
+
+      // Persist the migration before reopening the model for layout checks.
+      Session session = getSessionForTestModel(getRequiredTestModels().get(0));
+      for (int i = 0; i < 5; i++) {
+        GuiActions.flushASyncGuiJobs();
+        session.save(new NullProgressMonitor());
+      }
+      GuiActions.flushASyncGuiJobs();
+      session.close(new NullProgressMonitor());
+      GuiActions.flushASyncGuiJobs();
+
       checkLayout();
     }
   }
 
   protected void checkLayout() {
     Session session = getSessionForTestModel(getRequiredTestModels().get(0));
+    assertEquals(SessionStatus.SYNC, session.getStatus());
     CompareLayoutManager m = new CompareLayoutManager();
     SessionLayout persisted = m.getPersistedLayout(session);
     
