@@ -1,0 +1,111 @@
+name: capella-build
+
+on:
+  push:
+    branches:
+      - master
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 480
+    defaults:
+      run:
+        working-directory: .
+
+    env:
+      MAVEN_OPTS: -Xmx2g
+      # Pin the mutable CBI targetplatform nightly URL for reproducibility.
+      CBI_TPD_PIN: https://download.eclipse.org/cbi/updates/tpd/nightly/N202501210845
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Show toolchain versions
+        run: |
+          java -version
+          mvn -version
+
+      - name: Pin target-platform converter repository URL
+        run: |
+          sed -i "s#https://download.eclipse.org/cbi/updates/tpd/nightly/latest#${CBI_TPD_PIN}#g" releng/plugins/org.polarsys.capella.targets/pom.xml
+          grep -n "cbi/updates/tpd/nightly" releng/plugins/org.polarsys.capella.targets/pom.xml
+
+      - name: Generate target platform (.target from .targetplatform)
+        run: mvn -B -V clean verify -f releng/plugins/org.polarsys.capella.targets/pom.xml
+
+      - name: Download and install Temurin JREs for product packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p winJRE/jre linuxJRE/jre linux-aarch64JRE/jre macJRE/jre mac-aarch64JRE/jre
+
+          fetch_jre_tar() {
+            local os="$1" arch="$2" outdir="$3"
+            local url="https://api.adoptium.net/v3/binary/latest/17/ga/${os}/${arch}/jre/hotspot/normal/eclipse?project=jdk"
+            curl -fL "$url" -o /tmp/jre.tar.gz
+            tar -xzf /tmp/jre.tar.gz -C "$outdir" --strip-components=1
+          }
+
+          fetch_jre_zip() {
+            local os="$1" arch="$2" outdir="$3"
+            local url="https://api.adoptium.net/v3/binary/latest/17/ga/${os}/${arch}/jre/hotspot/normal/eclipse?project=jdk"
+            curl -fL "$url" -o /tmp/jre.zip
+            unzip -q /tmp/jre.zip -d /tmp/jre-unpacked
+            local top
+            top="$(find /tmp/jre-unpacked -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+            rm -rf "$outdir"/*
+            cp -a "$top"/* "$outdir"/
+            rm -rf /tmp/jre-unpacked /tmp/jre.zip
+          }
+
+          fetch_jre_tar linux x64 linuxJRE/jre
+          fetch_jre_tar linux aarch64 linux-aarch64JRE/jre
+          fetch_jre_tar mac x64 macJRE/jre
+          fetch_jre_tar mac aarch64 mac-aarch64JRE/jre
+          fetch_jre_zip windows x64 winJRE/jre
+
+          test -x linuxJRE/jre/bin/java
+          test -x linux-aarch64JRE/jre/bin/java
+          test -x macJRE/jre/Contents/Home/bin/java
+          test -x mac-aarch64JRE/jre/Contents/Home/bin/java
+          test -f winJRE/jre/bin/java.exe
+
+      - name: Build and package (Tycho full reactor)
+        run: mvn -B -V verify -Pfull
+
+      - name: Upload Capella packaged products
+        uses: actions/upload-artifact@v4
+        with:
+          name: capella-products
+          if-no-files-found: error
+          path: |
+            releng/plugins/org.polarsys.capella.rcp.product/target/products/capella-*.zip
+            releng/plugins/org.polarsys.capella.rcp.product/target/products/capella-*.tar.gz
+            releng/plugins/org.polarsys.capella.rcp.product/target/bom.json
+
+      - name: Upload p2 repositories and target artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: capella-update-sites-and-target
+          if-no-files-found: error
+          path: |
+            releng/plugins/org.polarsys.capella.rcp.site/target/repository/**
+            releng/plugins/org.polarsys.capella.test.site/target/repository/**
+            releng/plugins/org.polarsys.capella.egf.site/target/repository/**
+            releng/plugins/org.polarsys.capella.targets/full/*
