@@ -81,3 +81,28 @@ $RECYCLE.BIN/
 # Viatra/Xtext
 ##########
 **/*.java._trace
+
+########################
+## Local CI/test outputs
+########################
+# Local product unpack from UI test workflows/scripts.
+runtime/
+
+# Local UI test logs and temporary Eclipse workspaces.
+test-results/
+test-workspaces/
+
+# Local JRE staging folders used by scripts/prepare-product-jres.sh.
+linuxJRE/
+linux-aarch64JRE/
+macJRE/
+mac-aarch64JRE/
+winJRE/
+
+# Listener-produced JUnit XML emitted at repo root by older local runs.
+/* :: *.xml
+/smoke-listener.xml
+
+# Local test by-products produced by command-line/test scenarios.
+/test.csv
+/samples/IFE_samplemodel.zip

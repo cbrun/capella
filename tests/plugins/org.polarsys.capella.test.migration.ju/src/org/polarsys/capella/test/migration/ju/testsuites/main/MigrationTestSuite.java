@@ -40,7 +40,6 @@ import junit.framework.JUnit4TestAdapter;
 import junit.framework.Test;
 
 public class MigrationTestSuite extends BasicTestSuite {
-
   public MigrationTestSuite() {
     addTest(new JUnit4TestAdapter(RelationStability.class));
   }
