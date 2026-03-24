@@ -1,0 +1,200 @@
+name: capella-ui-tests-self-hosted
+
+on:
+  workflow_run:
+    workflows: ["capella-build"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: "GitHub Actions run id of capella-build to consume artifacts from"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  ui-tests:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 720
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate runner prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v Xvnc
+          command -v tar
+          command -v unzip
+          command -v timeout
+
+      - name: Download build artifacts (from triggering workflow_run)
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          pattern: capella-*
+          merge-multiple: false
+          path: artifacts
+
+      - name: Download build artifacts (manual run-id)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/download-artifact@v4
+        with:
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.build_run_id }}
+          pattern: capella-*
+          merge-multiple: false
+          path: artifacts
+
+      - name: Resolve artifact paths
+        id: paths
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PRODUCT_TAR="$(find artifacts -type f -name 'capella-*-linux-gtk-x86_64.tar.gz' | head -n 1)"
+          [ -n "$PRODUCT_TAR" ]
+
+          # Uploaded as: releng/plugins/org.polarsys.capella.test.site/target/repository/**
+          TEST_SITE_REPO="$(find artifacts -type d -path '*/releng/plugins/org.polarsys.capella.test.site/target/repository' | head -n 1)"
+          [ -n "$TEST_SITE_REPO" ]
+
+          echo "product_tar=$PRODUCT_TAR" >> "$GITHUB_OUTPUT"
+          echo "test_site_repo=$TEST_SITE_REPO" >> "$GITHUB_OUTPUT"
+
+      - name: Unpack Linux product
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf runtime
+          mkdir -p runtime
+          tar -xzf "${{ steps.paths.outputs.product_tar }}" -C runtime
+          test -x runtime/capella/capella
+
+      - name: Install Capella test feature with p2 director
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CAPELLA_HOME="$PWD/runtime/capella"
+          CAPELLA_BIN="$CAPELLA_HOME/capella"
+          TEST_REPO="${{ steps.paths.outputs.test_site_repo }}"
+
+          "$CAPELLA_BIN" \
+            -nosplash \
+            -consoleLog \
+            -application org.eclipse.equinox.p2.director \
+            -repository "file:${TEST_REPO}" \
+            -installIU org.polarsys.capella.test.feature.feature.group \
+            -destination "$CAPELLA_HOME" \
+            -bundlepool "$CAPELLA_HOME" \
+            -profile SDKProfile \
+            -profileProperties org.eclipse.update.install.features=true
+
+      - name: Run Jenkins-equivalent UI and non-UI suites
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CAPELLA_HOME="$PWD/runtime/capella"
+          CAPELLA_BIN="$CAPELLA_HOME/capella"
+          RESULT_DIR="$PWD/test-results"
+          WORK_BASE="$PWD/test-workspaces"
+          mkdir -p "$RESULT_DIR" "$WORK_BASE"
+
+          DISPLAY_NUM=99
+          XVNC_LOG="$RESULT_DIR/xvnc.log"
+          Xvnc :$DISPLAY_NUM -screen 0 1920x1080x24 -nolisten tcp -localhost >"$XVNC_LOG" 2>&1 &
+          XVNC_PID=$!
+          trap 'kill $XVNC_PID || true' EXIT
+          export DISPLAY=:$DISPLAY_NUM
+          sleep 3
+
+          run_case() {
+            local mode="$1"      # ui|nonui
+            local bucket="$2"
+            local plugin="$3"
+            local class_name="$4"
+
+            local app_id="org.eclipse.pde.junit.runtime.uitestapplication"
+            if [ "$mode" = "nonui" ]; then
+              app_id="org.eclipse.pde.junit.runtime.coretestapplication"
+            fi
+
+            local workdir="$WORK_BASE/$bucket"
+            local logfile="$RESULT_DIR/${bucket}__${class_name}.log"
+            mkdir -p "$workdir"
+
+            echo "[START] $bucket :: $class_name"
+            timeout 60m "$CAPELLA_BIN" \
+              -nosplash \
+              -consoleLog \
+              -application "$app_id" \
+              -testpluginname "$plugin" \
+              -classname "$class_name" \
+              -data "$workdir" \
+              -clean \
+              >"$logfile" 2>&1
+            echo "[PASS ] $bucket :: $class_name"
+          }
+
+          # Jenkins: ModelQueriesValidation
+          run_case ui ModelQueriesValidation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.business.queries.ju.testSuites.main.BusinessQueryTestSuite
+          run_case ui ModelQueriesValidation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.semantic.queries.ju.testsuites.SemanticQueriesTestSuite
+          run_case ui ModelQueriesValidation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.validation.rules.ju.testsuites.main.ValidationRulesTestSuite
+
+          # Jenkins: LibRecTransition
+          run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.libraries.ju.testsuites.main.LibrariesTestSuite
+          run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.libraries.ui.ju.testsuites.main.LibrariesUITestSuite
+          run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.recrpl.ju.testsuites.main.RecRplTestSuite
+          run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.transition.ju.testsuites.main.TransitionTestSuite
+          run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.re.updateconnections.ju.UpdateConnectionsTestSuite
+
+          # Jenkins: DiagramTools1/2, DiagramMiscFilters
+          run_case ui DiagramTools1 org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.tools.ju.testsuites.main.DiagramToolsStep1TestSuite
+          run_case ui DiagramTools2 org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.tools.ju.testsuites.main.DiagramToolsStep2TestSuite
+          run_case ui DiagramMiscFilters org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.misc.ju.testsuites.DiagramMiscTestSuite
+          run_case ui DiagramMiscFilters org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.filters.ju.testsuites.DiagramFiltersTestSuite
+          run_case ui DiagramMiscFilters org.polarsys.capella.test.suites.ju org.polarsys.capella.test.table.ju.testsuite.TableTestSuite
+
+          # Jenkins: Fragmentation, Odesign, Views
+          run_case ui Fragmentation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.fragmentation.ju.testsuites.FragmentationTestSuite
+          run_case ui Odesign org.polarsys.capella.test.suites.ju org.polarsys.capella.test.odesign.ju.maintestsuite.ODesignTestSuite
+          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.model.ju.testsuites.main.ModelTestSuite
+          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.massactions.ju.testsuites.MassActionsTestSuite
+          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.platform.ju.testsuites.PlatformTestSuite
+          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.richtext.ju.testsuites.RichtextTestSuite
+          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.fastlinker.ju.testsuites.FastLinkerTestsSuite
+          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.explorer.activity.ju.testsuites.ActivityExplorerTestsSuite
+          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.progressmonitoring.ju.testsuites.SetProgressTestSuite
+          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.navigator.ju.testsuites.main.NavigatorUITestSuite
+          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.semantic.ui.ju.testsuites.SemanticUITestSuite
+
+          # Jenkins: MigrationCommandLine, Benchmark, Detach, Documentation
+          run_case ui MigrationCommandLine org.polarsys.capella.test.suites.ju org.polarsys.capella.test.migration.ju.testsuites.main.MigrationTestSuite
+          run_case ui MigrationCommandLine org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.layout.ju.testsuites.LayoutTestSuite
+          run_case ui MigrationCommandLine org.polarsys.capella.test.suites.ju org.polarsys.capella.test.commandline.ju.testsuites.CommandLineTestSuite
+          run_case ui Benchmark org.polarsys.capella.test.suites.ju org.polarsys.capella.test.benchmarks.ju.suites.AllBenchmarksTestSuite
+          run_case ui Detach org.polarsys.capella.test.suites.ju org.polarsys.capella.test.model.ju.testsuites.partial.DetachTestSuite
+          run_case ui Documentation org.polarsys.capella.test.doc.ju org.polarsys.capella.test.doc.ju.testsuites.DocTestSuite
+
+          # Jenkins: NotUINavigator
+          run_case nonui NotUINavigator org.polarsys.capella.test.suites.ju org.polarsys.capella.test.navigator.ju.testsuites.main.NavigatorTestSuite
+
+      - name: Upload UI test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capella-ui-test-logs
+          if-no-files-found: warn
+          path: |
+            test-results/**
+            test-workspaces/**/.metadata/.log
