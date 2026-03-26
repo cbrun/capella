@@ -1,17 +1,18 @@
 name: capella-ui-tests-github-hosted
 
 on:
-  push:
-    branches:
-      - '*'
   workflow_run:
     workflows: ["capella-build"]
     types: [completed]
   workflow_dispatch:
     inputs:
       build_run_id:
-        description: "GitHub Actions run id of capella-build to consume artifacts from"
+        description: "GitHub Actions run id of capella-build to consume update-site artifacts from"
         required: true
+        type: string
+      build_branch:
+        description: "Branch name used to resolve rolling product release assets (defaults to current ref)"
+        required: false
         type: string
 
 permissions:
@@ -25,7 +26,7 @@ concurrency:
 
 jobs:
   ui-tests:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && (github.event_name != 'workflow_run' || github.event.workflow_run.event != 'pull_request')
     runs-on: ubuntu-latest
     timeout-minutes: 720
 
@@ -45,16 +46,41 @@ jobs:
           command -v tar
           command -v unzip
           command -v timeout
+          command -v gh
 
-      - name: Download Linux product artifact (from triggering workflow_run)
-        if: github.event_name == 'workflow_run'
-        uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
-          name: capella-product-linux-x86_64
-          path: artifacts/capella-product-linux-x86_64
+      - name: Resolve rolling branch release tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            branch="${{ github.event.workflow_run.head_branch }}"
+          elif [[ -n "${{ inputs.build_branch }}" ]]; then
+            branch="${{ inputs.build_branch }}"
+          else
+            branch="${{ github.ref_name }}"
+          fi
+          safe_branch="$(echo "${branch}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')"
+          if [[ -z "${safe_branch}" ]]; then
+            safe_branch="branch"
+          fi
+          branch_hash="$(printf '%s' "${branch}" | sha1sum | cut -c1-8)"
+          tag="ci-${safe_branch}-${branch_hash}-latest"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Download Linux product archive from rolling branch release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/capella-product-linux-x86_64
+          gh release download "${{ steps.release.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "capella-linux-x86_64.tar.gz" \
+            --dir artifacts/capella-product-linux-x86_64 \
+            --clobber
 
       - name: Download update-sites artifact (from triggering workflow_run)
         if: github.event_name == 'workflow_run'
@@ -65,16 +91,6 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           name: capella-update-sites
           path: artifacts/capella-update-sites
-
-      - name: Download Linux product artifact (manual run-id)
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/download-artifact@v4
-        with:
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ inputs.build_run_id }}
-          name: capella-product-linux-x86_64
-          path: artifacts/capella-product-linux-x86_64
 
       - name: Download update-sites artifact (manual run-id)
         if: github.event_name == 'workflow_dispatch'
@@ -92,7 +108,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          PRODUCT_TAR="$(find artifacts/capella-product-linux-x86_64 -type f -name 'capella-*-linux-gtk-x86_64.tar.gz' | head -n 1)"
+          PRODUCT_TAR="$(find artifacts/capella-product-linux-x86_64 -type f -name 'capella-linux-x86_64.tar.gz' | head -n 1)"
           [ -n "$PRODUCT_TAR" ]
 
           # Downloaded artifact is rooted at:

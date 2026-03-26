@@ -3,12 +3,12 @@ name: capella-build
 on:
   push:
     branches:
-      - '*'
+      - '**'
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -77,40 +77,70 @@ jobs:
           check_pattern "$base/capella-*macosx*.tar.gz"
           check_pattern "$base/capella-*win32*.zip"
 
-      - name: Upload Linux x86_64 packaged product
+      - name: Prepare canonical product archives for branch release
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="releng/plugins/org.polarsys.capella.rcp.product/target/products"
+          out="release-assets"
+          rm -rf "$out"
+          mkdir -p "$out"
+
+          cp "$(find "$base" -maxdepth 1 -type f -name 'capella-*linux-gtk-x86_64.tar.gz' | head -n 1)" "$out/capella-linux-x86_64.tar.gz"
+          cp "$(find "$base" -maxdepth 1 -type f -name 'capella-*linux-gtk-aarch64.tar.gz' | head -n 1)" "$out/capella-linux-aarch64.tar.gz"
+          cp "$(find "$base" -maxdepth 1 -type f -name 'capella-*macosx-cocoa-x86_64.tar.gz' | head -n 1)" "$out/capella-macos-x86_64.tar.gz"
+          cp "$(find "$base" -maxdepth 1 -type f -name 'capella-*macosx-cocoa-aarch64.tar.gz' | head -n 1)" "$out/capella-macos-aarch64.tar.gz"
+          cp "$(find "$base" -maxdepth 1 -type f -name 'capella-*win32-win32-x86_64.zip' | head -n 1)" "$out/capella-windows-x86_64.zip"
+
+          ls -lah "$out"
+
+      - name: Compute rolling branch release tag
+        if: github.event_name != 'pull_request'
+        id: rolling-tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="${GITHUB_REF_NAME}"
+          safe_branch="$(echo "${branch}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')"
+          if [[ -z "${safe_branch}" ]]; then
+            safe_branch="branch"
+          fi
+          branch_hash="$(printf '%s' "${branch}" | sha1sum | cut -c1-8)"
+          tag="ci-${safe_branch}-${branch_hash}-latest"
+          title="Capella CI latest (${branch})"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "title=${title}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish rolling branch release assets
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.rolling-tag.outputs.tag }}
+          name: ${{ steps.rolling-tag.outputs.title }}
+          prerelease: true
+          make_latest: false
+          generate_release_notes: false
+          fail_on_unmatched_files: true
+          body: |
+            Branch: `${{ github.ref_name }}`
+            Commit: `${{ github.sha }}`
+            Build: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          files: |
+            release-assets/capella-linux-x86_64.tar.gz
+            release-assets/capella-linux-aarch64.tar.gz
+            release-assets/capella-macos-x86_64.tar.gz
+            release-assets/capella-macos-aarch64.tar.gz
+            release-assets/capella-windows-x86_64.zip
+
+      # Compatibility for workflow_run jobs still using artifact download on default branch.
+      - name: Upload Linux x86_64 packaged product (compat)
         uses: actions/upload-artifact@v4
         with:
           name: capella-product-linux-x86_64
           if-no-files-found: error
+          compression-level: 0
           path: releng/plugins/org.polarsys.capella.rcp.product/target/products/capella-*linux-gtk-x86_64.tar.gz
-
-      - name: Upload Linux aarch64 packaged product
-        uses: actions/upload-artifact@v4
-        with:
-          name: capella-product-linux-aarch64
-          if-no-files-found: error
-          path: releng/plugins/org.polarsys.capella.rcp.product/target/products/capella-*linux-gtk-aarch64.tar.gz
-
-      - name: Upload macOS x86_64 packaged product
-        uses: actions/upload-artifact@v4
-        with:
-          name: capella-product-macos-x86_64
-          if-no-files-found: error
-          path: releng/plugins/org.polarsys.capella.rcp.product/target/products/capella-*macosx-cocoa-x86_64.tar.gz
-
-      - name: Upload macOS aarch64 packaged product
-        uses: actions/upload-artifact@v4
-        with:
-          name: capella-product-macos-aarch64
-          if-no-files-found: error
-          path: releng/plugins/org.polarsys.capella.rcp.product/target/products/capella-*macosx-cocoa-aarch64.tar.gz
-
-      - name: Upload Windows x86_64 packaged product
-        uses: actions/upload-artifact@v4
-        with:
-          name: capella-product-windows-x86_64
-          if-no-files-found: error
-          path: releng/plugins/org.polarsys.capella.rcp.product/target/products/capella-*win32-win32-x86_64.zip
 
       - name: Upload product BOM
         uses: actions/upload-artifact@v4
