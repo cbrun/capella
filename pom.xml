@@ -22,8 +22,8 @@
 	<packaging>pom</packaging>
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<tycho-version>4.0.13</tycho-version>
-		<tycho-extras-version>4.0.13</tycho-extras-version>
+		<tycho-version>5.0.2</tycho-version>
+		<tycho-extras-version>5.0.2</tycho-extras-version>
 		<antrun-version>3.0.0</antrun-version>
 		<rcptt-version>2.5.3</rcptt-version>
 		<rcptt-runner-version>2.5.3</rcptt-runner-version>
