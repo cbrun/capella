@@ -1,6 +1,9 @@
 name: capella-ui-tests-github-hosted
 
 on:
+  push:
+    branches:
+      - '*'
   workflow_run:
     workflows: ["capella-build"]
     types: [completed]
