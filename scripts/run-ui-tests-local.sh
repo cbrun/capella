@@ -15,6 +15,8 @@ TEST_SITE_REPO=""
 RUNTIME_DIR="${REPO_ROOT}/runtime"
 RESULT_DIR="${REPO_ROOT}/test-results"
 WORK_BASE="${REPO_ROOT}/test-workspaces"
+SAMPLES_GUARD_ENABLED=0
+SAMPLES_WAS_CLEAN=0
 
 usage() {
   cat <<'EOF'
@@ -37,6 +39,46 @@ Expected build outputs (default resolution):
   releng/plugins/org.polarsys.capella.rcp.product/target/products/capella-*-linux-gtk-x86_64.tar.gz
   releng/plugins/org.polarsys.capella.test.site/target/repository
 EOF
+}
+
+samples_is_dirty() {
+  ! git -C "${REPO_ROOT}" diff --quiet -- samples/ \
+    || ! git -C "${REPO_ROOT}" diff --cached --quiet -- samples/ \
+    || [[ -n "$(git -C "${REPO_ROOT}" ls-files --others --exclude-standard -- samples/)" ]]
+}
+
+snapshot_samples_state() {
+  if ! git -C "${REPO_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    return
+  fi
+  if [[ ! -d "${REPO_ROOT}/samples" ]]; then
+    return
+  fi
+
+  SAMPLES_GUARD_ENABLED=1
+  if ! samples_is_dirty; then
+    SAMPLES_WAS_CLEAN=1
+  fi
+}
+
+cleanup_samples_changes() {
+  if [[ "${SAMPLES_GUARD_ENABLED}" -ne 1 ]]; then
+    return
+  fi
+
+  if [[ "${SAMPLES_WAS_CLEAN}" -ne 1 ]]; then
+    echo "Git cleanup: skipped samples/ restore (it was already dirty before test run)."
+    return
+  fi
+
+  if ! samples_is_dirty; then
+    echo "Git cleanup: samples/ unchanged by tests."
+    return
+  fi
+
+  git -C "${REPO_ROOT}" restore --worktree --source=HEAD -- samples/
+  git -C "${REPO_ROOT}" ls-files --others --exclude-standard -z -- samples/ | xargs -0 -r rm -rf --
+  echo "Git cleanup: restored samples/ to pre-test state."
 }
 
 while [[ $# -gt 0 ]]; do
@@ -114,6 +156,8 @@ fi
   exit 2
 }
 
+snapshot_samples_state
+
 echo "== Environment =="
 echo "Repo root: ${REPO_ROOT}"
 echo "Product tar: ${PRODUCT_TAR}"
@@ -158,6 +202,7 @@ Xvnc "${XVNC_ARGS[@]}" >"${XVNC_LOG}" 2>&1 &
 XVNC_PID=$!
 VIEWER_PID=""
 cleanup() {
+  cleanup_samples_changes
   if [[ -n "${VIEWER_PID}" ]]; then
     kill "${VIEWER_PID}" >/dev/null 2>&1 || true
   fi
