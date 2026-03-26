@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-JAVA_MAJOR=17
+JAVA_MAJOR=21
 CLEAN=0
 
 usage() {
@@ -23,7 +23,7 @@ This creates/fills:
   winJRE/jre
 
 Options:
-  --java-major <N>  Temurin major version to download (default: 17)
+  --java-major <N>  Temurin major version to download (default: 21)
   --clean           Remove existing JRE staging folders before download
   -h, --help        Show this help
 EOF

@@ -27,11 +27,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java 17 (Temurin)
+      - name: Set up Java 21 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
           cache: maven
 
       - name: Show toolchain versions
@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           chmod +x scripts/prepare-product-jres.sh
-          scripts/prepare-product-jres.sh --java-major 17 --clean
+          scripts/prepare-product-jres.sh --java-major 21 --clean
 
       - name: Build and package (Tycho full reactor)
         run: mvn -B -V verify -Pfull
