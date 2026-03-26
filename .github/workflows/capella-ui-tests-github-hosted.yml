@@ -34,11 +34,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v Xvfb >/dev/null 2>&1; then
+          if ! command -v Xvnc >/dev/null 2>&1; then
             sudo apt-get update
-            sudo apt-get install -y xvfb
+            sudo apt-get install -y tigervnc-standalone-server
           fi
-          command -v Xvfb
+          command -v Xvnc
           command -v tar
           command -v unzip
           command -v timeout
@@ -119,7 +119,7 @@ jobs:
             -profile DefaultProfile \
             -profileProperties org.eclipse.update.install.features=true
 
-      - name: Run Jenkins-equivalent UI and non-UI suites on Xvfb
+      - name: Run Jenkins-equivalent UI and non-UI suites on Xvnc
         shell: bash
         run: |
           set -euo pipefail
@@ -130,10 +130,10 @@ jobs:
           WORK_BASE="$PWD/test-workspaces"
           mkdir -p "$RESULT_DIR" "$WORK_BASE"
 
-          export DISPLAY=:99
-          Xvfb :99 -screen 0 1920x1080x24 >"$RESULT_DIR/xvfb.log" 2>&1 &
-          XVFB_PID=$!
-          trap 'kill "$XVFB_PID" >/dev/null 2>&1 || true' EXIT
+          export DISPLAY=:29
+          Xvnc :29 -geometry 1024x768 -depth 24 -ac -SecurityTypes none -noreset >"$RESULT_DIR/xvnc.log" 2>&1 &
+          XVNC_PID=$!
+          trap 'kill "$XVNC_PID" >/dev/null 2>&1 || true' EXIT
           sleep 2
 
           PORT_BASE=25000

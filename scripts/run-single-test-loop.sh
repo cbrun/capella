@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-DISPLAY_NUM=99
+DISPLAY_NUM=29
 WATCH=0
 VNC_NO_AUTH=0
 TIMEOUT_MIN=20
@@ -14,9 +14,9 @@ UI_MODE=0
 PLUGIN=""
 CLASS_NAME=""
 TEST_SITE_REPO="releng/plugins/org.polarsys.capella.test.site/target/repository"
-RUNTIME_ROOT="${REPO_ROOT}/runtime/single-test-loop"
-RESULTS_BASE="${REPO_ROOT}/test-results/single-test"
-WORK_BASE_ROOT="${REPO_ROOT}/test-workspaces/single-test"
+RUNTIME_ROOT="${CAPELLA_RUNTIME_ROOT:-${REPO_ROOT}/runtime/single-test-loop}"
+RESULTS_BASE="${CAPELLA_RESULTS_BASE:-${REPO_ROOT}/test-results/single-test}"
+WORK_BASE_ROOT="${CAPELLA_WORK_BASE_ROOT:-${REPO_ROOT}/test-workspaces/single-test}"
 
 SAMPLES_GUARD_ENABLED=0
 SAMPLES_WAS_CLEAN=0
@@ -35,9 +35,9 @@ Required:
 
 Options:
   --ui                    Use UI test application (default: non-UI)
-  --display <N>           X display number (default: 99)
+  --display <N>           X display number (default: 29)
   --watch                 Open local vncviewer on the isolated display
-  --vnc-no-auth           Start Xvnc with SecurityTypes=None (localhost only)
+  --vnc-no-auth           Kept for compatibility (Jenkins parity is already no-auth)
   --timeout-min <N>       Timeout in minutes (default: 20)
   --test-site-repo <path> Override test update-site repository path
   --no-build              Skip auto-rebuild of test update site
@@ -199,6 +199,10 @@ if [[ -z "${PLUGIN}" || -z "${CLASS_NAME}" ]]; then
   exit 2
 fi
 
+if [[ "${VNC_NO_AUTH}" -eq 1 ]]; then
+  echo "Note: --vnc-no-auth is now a no-op (Jenkins parity already uses SecurityTypes=none)."
+fi
+
 for cmd in Xvnc timeout; do
   command -v "${cmd}" >/dev/null || {
     echo "Missing required command: ${cmd}"
@@ -230,6 +234,23 @@ if [[ ! -x "${CAPELLA_BIN}" ]]; then
 fi
 
 snapshot_samples_state
+
+RUN_ID="$(date +%Y%m%d-%H%M%S)"
+RESULT_DIR="${RESULTS_BASE}/${RUN_ID}"
+WORK_BASE="${WORK_BASE_ROOT}/${RUN_ID}"
+mkdir -p "${RESULT_DIR}" "${WORK_BASE}"
+ln -sfn "${RESULT_DIR}" "${RESULTS_BASE}/latest"
+ln -sfn "${WORK_BASE}" "${WORK_BASE_ROOT}/latest"
+
+echo "== Start isolated Xvnc (Jenkins parity) =="
+XVNC_LOG="${RESULT_DIR}/xvnc.log"
+XVNC_ARGS=( ":${DISPLAY_NUM}" -geometry 1024x768 -depth 24 -ac -SecurityTypes none -noreset )
+echo "Xvnc command: Xvnc ${XVNC_ARGS[*]}"
+Xvnc "${XVNC_ARGS[@]}" >"${XVNC_LOG}" 2>&1 &
+XVNC_PID=$!
+trap cleanup EXIT
+export DISPLAY=":${DISPLAY_NUM}"
+sleep 3
 
 if [[ "${AUTO_BUILD}" -eq 1 ]]; then
   echo "== Auto-build test update site (fast loop mode) =="
@@ -266,33 +287,10 @@ echo "== Refresh Capella test feature in cached runtime =="
   -profile DefaultProfile \
   -profileProperties org.eclipse.update.install.features=true
 
-RUN_ID="$(date +%Y%m%d-%H%M%S)"
-RESULT_DIR="${RESULTS_BASE}/${RUN_ID}"
-WORK_BASE="${WORK_BASE_ROOT}/${RUN_ID}"
-mkdir -p "${RESULT_DIR}" "${WORK_BASE}"
-ln -sfn "${RESULT_DIR}" "${RESULTS_BASE}/latest"
-ln -sfn "${WORK_BASE}" "${WORK_BASE_ROOT}/latest"
-
-echo "== Start isolated Xvnc =="
-XVNC_LOG="${RESULT_DIR}/xvnc.log"
-XVNC_ARGS=( ":${DISPLAY_NUM}" -geometry 1920x1080 -depth 24 -nolisten tcp -localhost )
-if [[ "${VNC_NO_AUTH}" -eq 1 ]]; then
-  XVNC_ARGS+=( -SecurityTypes None )
-fi
-Xvnc "${XVNC_ARGS[@]}" >"${XVNC_LOG}" 2>&1 &
-XVNC_PID=$!
-trap cleanup EXIT
-export DISPLAY=":${DISPLAY_NUM}"
-sleep 3
-
 echo "Monitor instructions:"
 echo "  1) Open a new terminal"
 echo "  2) Connect with: vncviewer localhost:${DISPLAY_NUM}"
-if [[ "${VNC_NO_AUTH}" -eq 1 ]]; then
-  echo "     (No password required; connection is localhost-only)"
-else
-  echo "     (Password/auth may be requested by your local TigerVNC defaults)"
-fi
+echo "     (No password required; matches Jenkins Xvnc SecurityTypes=none)"
 echo
 
 if [[ "${WATCH}" -eq 1 ]]; then

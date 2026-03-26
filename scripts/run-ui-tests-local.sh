@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
-DISPLAY_NUM=99
+DISPLAY_NUM=29
 WATCH=0
 SMOKE=0
 TIMEOUT_MIN=60
@@ -26,10 +26,10 @@ Run Capella UI/non-UI test suites locally on an isolated Xvnc display
 to match the GitHub self-hosted workflow behavior.
 
 Options:
-  --display <N>           X display number (default: 99)
+  --display <N>           X display number (default: 29)
   --watch                 Open local VNC viewer on the isolated display
   --smoke                 Run a reduced subset instead of the full suite
-  --vnc-no-auth           Start Xvnc with SecurityTypes=None (localhost only)
+  --vnc-no-auth           Kept for compatibility (Jenkins parity is already no-auth)
   --timeout-min <N>       Per-suite timeout in minutes (default: 60)
   --product-tar <path>    Override Linux product tarball path
   --test-site-repo <path> Override test update-site repository path
@@ -123,6 +123,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ "${VNC_NO_AUTH}" -eq 1 ]]; then
+  echo "Note: --vnc-no-auth is now a no-op (Jenkins parity already uses SecurityTypes=none)."
+fi
+
 for cmd in Xvnc tar timeout; do
   command -v "$cmd" >/dev/null || {
     echo "Missing required command: $cmd"
@@ -192,12 +196,10 @@ echo "== Install Capella test feature =="
   -profile DefaultProfile \
   -profileProperties org.eclipse.update.install.features=true
 
-echo "== Start isolated Xvnc =="
+echo "== Start isolated Xvnc (Jenkins parity) =="
 XVNC_LOG="${RESULT_DIR}/xvnc.log"
-XVNC_ARGS=( ":${DISPLAY_NUM}" -geometry 1920x1080 -depth 24 -nolisten tcp -localhost )
-if [[ "${VNC_NO_AUTH}" -eq 1 ]]; then
-  XVNC_ARGS+=( -SecurityTypes None )
-fi
+XVNC_ARGS=( ":${DISPLAY_NUM}" -geometry 1024x768 -depth 24 -ac -SecurityTypes none -noreset )
+echo "Xvnc command: Xvnc ${XVNC_ARGS[*]}"
 Xvnc "${XVNC_ARGS[@]}" >"${XVNC_LOG}" 2>&1 &
 XVNC_PID=$!
 VIEWER_PID=""
@@ -215,11 +217,7 @@ sleep 3
 echo "Monitor instructions:"
 echo "  1) Open a new terminal"
 echo "  2) Connect with: vncviewer localhost:${DISPLAY_NUM}"
-if [[ "${VNC_NO_AUTH}" -eq 1 ]]; then
-  echo "     (No password required; connection is localhost-only)"
-else
-  echo "     (Password/auth may be requested by your local TigerVNC defaults)"
-fi
+echo "     (No password required; matches Jenkins Xvnc SecurityTypes=none)"
 echo
 
 if [[ "${WATCH}" -eq 1 ]]; then
