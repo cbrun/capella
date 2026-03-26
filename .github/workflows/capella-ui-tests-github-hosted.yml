@@ -7,12 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       build_run_id:
-        description: "GitHub Actions run id of capella-build to consume update-site artifacts from"
+        description: "GitHub Actions run id of capella-build to consume product and update-site artifacts from"
         required: true
-        type: string
-      build_branch:
-        description: "Branch name used to resolve rolling product release assets (defaults to current ref)"
-        required: false
         type: string
 
 permissions:
@@ -46,59 +42,34 @@ jobs:
           command -v tar
           command -v unzip
           command -v timeout
-          command -v gh
 
-      - name: Resolve rolling branch release tag
-        id: release
+      - name: Resolve build run-id
+        id: build-run
         shell: bash
         run: |
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            branch="${{ github.event.workflow_run.head_branch }}"
-          elif [[ -n "${{ inputs.build_branch }}" ]]; then
-            branch="${{ inputs.build_branch }}"
+            run_id="${{ github.event.workflow_run.id }}"
           else
-            branch="${{ github.ref_name }}"
+            run_id="${{ inputs.build_run_id }}"
           fi
-          safe_branch="$(echo "${branch}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')"
-          if [[ -z "${safe_branch}" ]]; then
-            safe_branch="branch"
-          fi
-          branch_hash="$(printf '%s' "${branch}" | sha1sum | cut -c1-8)"
-          tag="ci-${safe_branch}-${branch_hash}-latest"
-          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
 
-      - name: Download Linux product archive from rolling branch release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts/capella-product-linux-x86_64
-          gh release download "${{ steps.release.outputs.tag }}" \
-            --repo "${{ github.repository }}" \
-            --pattern "capella-linux-x86_64.tar.gz" \
-            --dir artifacts/capella-product-linux-x86_64 \
-            --clobber
-
-      - name: Download update-sites artifact (from triggering workflow_run)
-        if: github.event_name == 'workflow_run'
+      - name: Download Linux product artifact (from capella-build run)
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
-          name: capella-update-sites
-          path: artifacts/capella-update-sites
+          run-id: ${{ steps.build-run.outputs.run_id }}
+          name: capella-product-linux-x86_64
+          path: artifacts/capella-product-linux-x86_64
 
-      - name: Download update-sites artifact (manual run-id)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Download update-sites artifact (from capella-build run)
         uses: actions/download-artifact@v4
         with:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ inputs.build_run_id }}
+          run-id: ${{ steps.build-run.outputs.run_id }}
           name: capella-update-sites
           path: artifacts/capella-update-sites
 
@@ -246,6 +217,10 @@ jobs:
             fi
             echo "[PASS ] $bucket :: $class_name"
           }
+
+          # Startup readiness gate: run one tiny UI testcase first so workbench-
+          # dependent services are initialized before the full suite matrix.
+          run_case ui Warmup org.polarsys.capella.test.platform.ju org.polarsys.capella.test.platform.ju.testcases.CapellaPlatformVersionNotNull
 
           # Jenkins: ModelQueriesValidation
           run_case ui ModelQueriesValidation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.business.queries.ju.testSuites.main.BusinessQueryTestSuite
