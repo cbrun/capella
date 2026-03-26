@@ -274,12 +274,95 @@ jobs:
           # Jenkins: NotUINavigator
           run_case nonui NotUINavigator org.polarsys.capella.test.suites.ju org.polarsys.capella.test.navigator.ju.testsuites.main.NavigatorTestSuite
 
+      - name: Flatten nested JUnit XML for report
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-results/flat
+          python3 - <<'PY'
+          from copy import deepcopy
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          in_dir = Path("test-results")
+          out_dir = in_dir / "flat"
+          xml_files = sorted(p for p in in_dir.glob("*.xml") if p.is_file())
+          if not xml_files:
+            raise SystemExit("No JUnit XML files found in test-results/")
+
+          def all_cases(node):
+            return list(node.findall(".//testcase"))
+
+          def direct_cases(node):
+            return [c for c in list(node) if c.tag == "testcase"]
+
+          def child_suites(node):
+            return [c for c in list(node) if c.tag == "testsuite"]
+
+          def flatten_suite(suite):
+            suites = []
+            cases = direct_cases(suite)
+            if cases:
+              suites.append((suite, cases))
+            for nested in child_suites(suite):
+              suites.extend(flatten_suite(nested))
+            return suites
+
+          in_case_count = 0
+          out_case_count = 0
+          out_suite_count = 0
+
+          for src in xml_files:
+            root = ET.parse(src).getroot()
+            if root.tag == "testsuites":
+              roots = [s for s in list(root) if s.tag == "testsuite"]
+            elif root.tag == "testsuite":
+              roots = [root]
+            else:
+              raise SystemExit(f"{src}: unsupported root tag <{root.tag}>")
+
+            in_case_count += len(all_cases(root))
+            out_root = ET.Element("testsuites")
+            for suite in roots:
+              for original, cases in flatten_suite(suite):
+                attrs = dict(original.attrib)
+                attrs["tests"] = str(len(cases))
+                attrs["failures"] = str(sum(1 for c in cases if c.find("failure") is not None))
+                attrs["errors"] = str(sum(1 for c in cases if c.find("error") is not None))
+                attrs["skipped"] = str(sum(1 for c in cases if c.find("skipped") is not None))
+                if "time" not in attrs:
+                  attrs["time"] = str(sum(float(c.attrib.get("time", "0") or "0") for c in cases))
+
+                out_suite = ET.SubElement(out_root, "testsuite", attrs)
+                for c in cases:
+                  out_suite.append(deepcopy(c))
+                out_case_count += len(cases)
+                out_suite_count += 1
+
+            out_path = out_dir / src.name
+            out_tree = ET.ElementTree(out_root)
+            ET.indent(out_tree, space="  ")
+            out_tree.write(out_path, encoding="utf-8", xml_declaration=True)
+
+          if in_case_count != out_case_count:
+            raise SystemExit(
+              f"Flattening mismatch: in={in_case_count}, out={out_case_count}"
+            )
+
+          print(
+            f"Flattened {len(xml_files)} files into {out_suite_count} flat suites "
+            f"with {out_case_count} testcases."
+          )
+          PY
+
       - name: Publish UI test report
         if: ${{ !cancelled() }}
         uses: dorny/test-reporter@v3
         with:
           name: Capella UI tests (github-hosted)
-          path: test-results/*.xml
+          # Capella generates nested <testsuite>; flatten first for java-junit parser accuracy.
+          path: test-results/flat/*.xml
           reporter: java-junit
           only-summary: "false"
           use-actions-summary: "true"
