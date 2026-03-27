@@ -10,6 +10,14 @@ on:
         description: "GitHub Actions run id of capella-build to consume product and update-site artifacts from"
         required: true
         type: string
+      test_scope:
+        description: "Temporary scope selector while fixing unstable tests"
+        required: false
+        default: focused-failures
+        type: choice
+        options:
+          - focused-failures
+          - full
 
 permissions:
   contents: read
@@ -119,8 +127,10 @@ jobs:
             -profile DefaultProfile \
             -profileProperties org.eclipse.update.install.features=true
 
-      - name: Run Jenkins-equivalent UI and non-UI suites on Xvnc
+      - name: Run UI and non-UI suites on Xvnc
         shell: bash
+        env:
+          TEST_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.test_scope || 'full' }}
         run: |
           set -euo pipefail
 
@@ -138,6 +148,8 @@ jobs:
 
           PORT_BASE=25000
           CASE_INDEX=0
+
+          echo "Selected test scope: ${TEST_SCOPE}"
 
           wait_for_listener() {
             local listener_pid="$1"
@@ -222,48 +234,57 @@ jobs:
           # dependent services are initialized before the full suite matrix.
           run_case ui Warmup org.polarsys.capella.test.platform.ju org.polarsys.capella.test.platform.ju.testcases.CapellaPlatformVersionNotNull
 
-          # Jenkins: ModelQueriesValidation
-          run_case ui ModelQueriesValidation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.business.queries.ju.testSuites.main.BusinessQueryTestSuite
-          run_case ui ModelQueriesValidation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.semantic.queries.ju.testsuites.SemanticQueriesTestSuite
-          run_case ui ModelQueriesValidation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.validation.rules.ju.testsuites.main.ValidationRulesTestSuite
+          if [ "${TEST_SCOPE}" = "focused-failures" ]; then
+            # Temporary accelerated iteration loop for currently failing tests.
+            run_case ui FocusedFailures org.polarsys.capella.test.platform.ju org.polarsys.capella.test.platform.ju.testcases.InvalidPreferencesInitializer
+            run_case ui FocusedFailures org.polarsys.capella.test.suites.ju org.polarsys.capella.test.migration.ju.testcases.basic.SysmodelMigrationLayout
+            run_case ui FocusedFailures org.polarsys.capella.test.suites.ju org.polarsys.capella.test.navigator.ju.DefaultLayout
+            run_case ui FocusedFailures org.polarsys.capella.test.suites.ju org.polarsys.capella.test.navigator.ju.CreateElement
+            run_case ui FocusedFailures org.polarsys.capella.test.suites.ju org.polarsys.capella.test.transition.ju.testcases.options.IncrementalModeTest
+          else
+            # Jenkins: ModelQueriesValidation
+            run_case ui ModelQueriesValidation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.business.queries.ju.testSuites.main.BusinessQueryTestSuite
+            run_case ui ModelQueriesValidation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.semantic.queries.ju.testsuites.SemanticQueriesTestSuite
+            run_case ui ModelQueriesValidation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.validation.rules.ju.testsuites.main.ValidationRulesTestSuite
 
-          # Jenkins: LibRecTransition
-          run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.libraries.ju.testsuites.main.LibrariesTestSuite
-          run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.libraries.ui.ju.testsuites.main.LibrariesUITestSuite
-          run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.recrpl.ju.testsuites.main.RecRplTestSuite
-          run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.transition.ju.testsuites.main.TransitionTestSuite
-          run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.re.updateconnections.ju.UpdateConnectionsTestSuite
+            # Jenkins: LibRecTransition
+            run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.libraries.ju.testsuites.main.LibrariesTestSuite
+            run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.libraries.ui.ju.testsuites.main.LibrariesUITestSuite
+            run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.recrpl.ju.testsuites.main.RecRplTestSuite
+            run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.transition.ju.testsuites.main.TransitionTestSuite
+            run_case ui LibRecTransition org.polarsys.capella.test.suites.ju org.polarsys.capella.test.re.updateconnections.ju.UpdateConnectionsTestSuite
 
-          # Jenkins: DiagramTools1/2, DiagramMiscFilters
-          run_case ui DiagramTools1 org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.tools.ju.testsuites.main.DiagramToolsStep1TestSuite
-          run_case ui DiagramTools2 org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.tools.ju.testsuites.main.DiagramToolsStep2TestSuite
-          run_case ui DiagramMiscFilters org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.misc.ju.testsuites.DiagramMiscTestSuite
-          run_case ui DiagramMiscFilters org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.filters.ju.testsuites.DiagramFiltersTestSuite
-          run_case ui DiagramMiscFilters org.polarsys.capella.test.suites.ju org.polarsys.capella.test.table.ju.testsuite.TableTestSuite
+            # Jenkins: DiagramTools1/2, DiagramMiscFilters
+            run_case ui DiagramTools1 org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.tools.ju.testsuites.main.DiagramToolsStep1TestSuite
+            run_case ui DiagramTools2 org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.tools.ju.testsuites.main.DiagramToolsStep2TestSuite
+            run_case ui DiagramMiscFilters org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.misc.ju.testsuites.DiagramMiscTestSuite
+            run_case ui DiagramMiscFilters org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.filters.ju.testsuites.DiagramFiltersTestSuite
+            run_case ui DiagramMiscFilters org.polarsys.capella.test.suites.ju org.polarsys.capella.test.table.ju.testsuite.TableTestSuite
 
-          # Jenkins: Fragmentation, Odesign, Views
-          run_case ui Fragmentation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.fragmentation.ju.testsuites.FragmentationTestSuite
-          run_case ui Odesign org.polarsys.capella.test.suites.ju org.polarsys.capella.test.odesign.ju.maintestsuite.ODesignTestSuite
-          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.model.ju.testsuites.main.ModelTestSuite
-          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.massactions.ju.testsuites.MassActionsTestSuite
-          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.platform.ju.testsuites.PlatformTestSuite
-          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.richtext.ju.testsuites.RichtextTestSuite
-          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.fastlinker.ju.testsuites.FastLinkerTestsSuite
-          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.explorer.activity.ju.testsuites.ActivityExplorerTestsSuite
-          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.progressmonitoring.ju.testsuites.SetProgressTestSuite
-          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.navigator.ju.testsuites.main.NavigatorUITestSuite
-          run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.semantic.ui.ju.testsuites.SemanticUITestSuite
+            # Jenkins: Fragmentation, Odesign, Views
+            run_case ui Fragmentation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.fragmentation.ju.testsuites.FragmentationTestSuite
+            run_case ui Odesign org.polarsys.capella.test.suites.ju org.polarsys.capella.test.odesign.ju.maintestsuite.ODesignTestSuite
+            run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.model.ju.testsuites.main.ModelTestSuite
+            run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.massactions.ju.testsuites.MassActionsTestSuite
+            run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.platform.ju.testsuites.PlatformTestSuite
+            run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.richtext.ju.testsuites.RichtextTestSuite
+            run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.fastlinker.ju.testsuites.FastLinkerTestsSuite
+            run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.explorer.activity.ju.testsuites.ActivityExplorerTestsSuite
+            run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.progressmonitoring.ju.testsuites.SetProgressTestSuite
+            run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.navigator.ju.testsuites.main.NavigatorUITestSuite
+            run_case ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.semantic.ui.ju.testsuites.SemanticUITestSuite
 
-          # Jenkins: MigrationCommandLine, Benchmark, Detach, Documentation
-          run_case ui MigrationCommandLine org.polarsys.capella.test.suites.ju org.polarsys.capella.test.migration.ju.testsuites.main.MigrationTestSuite
-          run_case ui MigrationCommandLine org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.layout.ju.testsuites.LayoutTestSuite
-          run_case ui MigrationCommandLine org.polarsys.capella.test.suites.ju org.polarsys.capella.test.commandline.ju.testsuites.CommandLineTestSuite
-          run_case ui Benchmark org.polarsys.capella.test.suites.ju org.polarsys.capella.test.benchmarks.ju.suites.AllBenchmarksTestSuite
-          run_case ui Detach org.polarsys.capella.test.suites.ju org.polarsys.capella.test.model.ju.testsuites.partial.DetachTestSuite
-          run_case ui Documentation org.polarsys.capella.test.doc.ju org.polarsys.capella.test.doc.ju.testsuites.DocTestSuite
+            # Jenkins: MigrationCommandLine, Benchmark, Detach, Documentation
+            run_case ui MigrationCommandLine org.polarsys.capella.test.suites.ju org.polarsys.capella.test.migration.ju.testsuites.main.MigrationTestSuite
+            run_case ui MigrationCommandLine org.polarsys.capella.test.suites.ju org.polarsys.capella.test.diagram.layout.ju.testsuites.LayoutTestSuite
+            run_case ui MigrationCommandLine org.polarsys.capella.test.suites.ju org.polarsys.capella.test.commandline.ju.testsuites.CommandLineTestSuite
+            run_case ui Benchmark org.polarsys.capella.test.suites.ju org.polarsys.capella.test.benchmarks.ju.suites.AllBenchmarksTestSuite
+            run_case ui Detach org.polarsys.capella.test.suites.ju org.polarsys.capella.test.model.ju.testsuites.partial.DetachTestSuite
+            run_case ui Documentation org.polarsys.capella.test.doc.ju org.polarsys.capella.test.doc.ju.testsuites.DocTestSuite
 
-          # Jenkins: NotUINavigator
-          run_case nonui NotUINavigator org.polarsys.capella.test.suites.ju org.polarsys.capella.test.navigator.ju.testsuites.main.NavigatorTestSuite
+            # Jenkins: NotUINavigator
+            run_case nonui NotUINavigator org.polarsys.capella.test.suites.ju org.polarsys.capella.test.navigator.ju.testsuites.main.NavigatorTestSuite
+          fi
 
       - name: Flatten nested JUnit XML for report
         if: ${{ !cancelled() }}
