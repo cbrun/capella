@@ -87,13 +87,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          PRODUCT_TAR="$(find artifacts/capella-product-linux-x86_64 -type f -name 'capella-linux-x86_64.tar.gz' | head -n 1)"
-          [ -n "$PRODUCT_TAR" ]
+          PRODUCT_TAR="$(find artifacts/capella-product-linux-x86_64 -type f \( -name 'capella-linux-x86_64.tar.gz' -o -name 'capella-*linux-gtk-x86_64*.tar.gz' \) | head -n 1)"
+          if [ -z "$PRODUCT_TAR" ]; then
+            echo "Unable to locate Linux product archive in artifacts/capella-product-linux-x86_64"
+            find artifacts/capella-product-linux-x86_64 -maxdepth 4 -type f | sed -n '1,200p'
+            exit 1
+          fi
 
           # Downloaded artifact is rooted at:
           # org.polarsys.capella.test.site/target/repository/**
           TEST_SITE_REPO="$(find artifacts/capella-update-sites -type d -path '*/org.polarsys.capella.test.site/target/repository' | head -n 1)"
-          [ -n "$TEST_SITE_REPO" ]
+          if [ -z "$TEST_SITE_REPO" ]; then
+            TEST_SITE_REPO="$(find artifacts/capella-update-sites -type d -path '*/org.polarsys.capella.rcp.site/target/repository' | head -n 1)"
+          fi
+          if [ -z "$TEST_SITE_REPO" ]; then
+            echo "Unable to locate test update-site repository in artifacts/capella-update-sites"
+            find artifacts/capella-update-sites -maxdepth 5 -type d | sed -n '1,200p'
+            exit 1
+          fi
 
           echo "product_tar=$PRODUCT_TAR" >> "$GITHUB_OUTPUT"
           echo "test_site_repo=$TEST_SITE_REPO" >> "$GITHUB_OUTPUT"
