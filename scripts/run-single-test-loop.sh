@@ -13,6 +13,8 @@ AUTO_BUILD=1
 UI_MODE=0
 MAXIMIZE_WORKBENCH=0
 LEGACY_DESKTOP_SETUP=0
+DEBUG_JVM_PORT=""
+DEBUG_JVM_SUSPEND=0
 PLUGIN=""
 CLASS_NAME=""
 TEST_SITE_REPO="releng/plugins/org.polarsys.capella.test.site/target/repository"
@@ -56,6 +58,8 @@ Options:
   --legacy-desktop-setup  Run xrandr/xsetroot/vncconfig/xhost/metacity setup before UI tests
   --timeout-min <N>       Timeout in minutes (default: 20)
   --test-site-repo <path> Override test update-site repository path
+  --debug-jvm-port <N>    Enable JDWP on the PDE test JVM on the given port
+  --debug-jvm-suspend     Start the PDE test JVM suspended until a debugger attaches
   --no-build              Skip auto-rebuild of test update site
   -h, --help              Show this help
 
@@ -79,6 +83,11 @@ Custom testcase workflow:
          --plugin org.polarsys.capella.test.platform.ju \
          --class org.polarsys.capella.test.platform.ju.testcases.UIEnvironmentFingerprintTest \
          --ui --no-build
+
+Runtime freshness proof:
+  This script prints the installed runtime bundle path, its sha256, whether it
+  contains the requested testcase class, and the first [RELDBG] revision banner
+  emitted by the testcase. Use those four lines before trusting any local result.
 USAGE
 }
 
@@ -183,6 +192,10 @@ except zipfile.BadZipFile:
 PY
 }
 
+find_installed_plugin_jar() {
+  find "${CAPELLA_HOME}" -type f -path "*/plugins/${PLUGIN}_*.jar" | sort | tail -n 1
+}
+
 refresh_test_feature() {
   local refresh_log="$1"
 
@@ -264,6 +277,14 @@ while [[ $# -gt 0 ]]; do
       TEST_SITE_REPO="$2"
       shift 2
       ;;
+    --debug-jvm-port)
+      DEBUG_JVM_PORT="$2"
+      shift 2
+      ;;
+    --debug-jvm-suspend)
+      DEBUG_JVM_SUSPEND=1
+      shift
+      ;;
     --no-build)
       AUTO_BUILD=0
       shift
@@ -284,6 +305,11 @@ if [[ -z "${PLUGIN}" || -z "${CLASS_NAME}" ]]; then
   echo "--plugin and --class are required."
   echo
   usage
+  exit 2
+fi
+
+if [[ "${DEBUG_JVM_SUSPEND}" -eq 1 && -z "${DEBUG_JVM_PORT}" ]]; then
+  echo "--debug-jvm-suspend requires --debug-jvm-port."
   exit 2
 fi
 
@@ -430,10 +456,26 @@ if ! refresh_test_feature "${REFRESH_LOG}"; then
   fi
 fi
 
+INSTALLED_PLUGIN_JAR="$(find_installed_plugin_jar || true)"
+INSTALLED_PLUGIN_SHA="missing"
+INSTALLED_PLUGIN_HAS_CLASS="missing"
+if [[ -n "${INSTALLED_PLUGIN_JAR}" ]]; then
+  INSTALLED_PLUGIN_SHA="$(sha256sum "${INSTALLED_PLUGIN_JAR}" | awk '{print $1}')"
+  INSTALLED_PLUGIN_HAS_CLASS="$(jar_contains_class "${INSTALLED_PLUGIN_JAR}" "${CLASS_NAME}")"
+fi
+
+echo "Installed runtime bundle : ${INSTALLED_PLUGIN_JAR:-MISSING}"
+echo "Installed runtime sha256 : ${INSTALLED_PLUGIN_SHA}"
+echo "Installed class present  : ${INSTALLED_PLUGIN_HAS_CLASS}"
+
 echo "Monitor instructions:"
 echo "  1) Open a new terminal"
 echo "  2) Connect with: vncviewer localhost:${DISPLAY_NUM}"
 echo "     (No password required; matches Jenkins Xvnc SecurityTypes=none)"
+if [[ -n "${DEBUG_JVM_PORT}" ]]; then
+  echo "  3) Attach a JVM debugger to localhost:${DEBUG_JVM_PORT}"
+  echo "     JDWP suspend         : $([[ \"${DEBUG_JVM_SUSPEND}\" -eq 1 ]] && echo yes || echo no)"
+fi
 echo
 
 if [[ "${WATCH}" -eq 1 ]]; then
@@ -518,6 +560,14 @@ if ! kill -0 "${LISTENER_PID}" >/dev/null 2>&1; then
 fi
 
 set +e
+TEST_VMARGS=()
+if [[ -n "${DEBUG_JVM_PORT}" ]]; then
+  SUSPEND_FLAG="n"
+  if [[ "${DEBUG_JVM_SUSPEND}" -eq 1 ]]; then
+    SUSPEND_FLAG="y"
+  fi
+  TEST_VMARGS=(-vmargs "-agentlib:jdwp=transport=dt_socket,server=y,suspend=${SUSPEND_FLAG},address=*:${DEBUG_JVM_PORT}")
+fi
 timeout "${TIMEOUT_MIN}m" "${CAPELLA_BIN}" \
   -nosplash \
   -consoleLog \
@@ -527,6 +577,7 @@ timeout "${TIMEOUT_MIN}m" "${CAPELLA_BIN}" \
   -classname "${CLASS_NAME}" \
   -data "${TEST_WS}" \
   -clean \
+  "${TEST_VMARGS[@]}" \
   >"${LOG_FILE}" 2>&1
 RC=$?
 set -e
@@ -590,6 +641,12 @@ if [[ -n "${EXECUTION_ISSUE}" ]]; then
   fi
 fi
 
+if command -v rg >/dev/null 2>&1; then
+  RUNTIME_REVISION_LINE="$(rg -m 1 '\[RELDBG\] revision=' "${LOG_FILE}" || true)"
+else
+  RUNTIME_REVISION_LINE="$(grep -m 1 '\[RELDBG\] revision=' "${LOG_FILE}" || true)"
+fi
+
 echo
 echo "============================================================"
 echo "SINGLE TEST SUMMARY"
@@ -603,6 +660,18 @@ echo "Results dir  : ${RESULT_DIR}"
 echo "Test log     : ${LOG_FILE}"
 echo "Listener log : ${LISTENER_LOG}"
 echo "JUnit XML    : ${XML_FILE}"
+echo "Runtime jar  : ${INSTALLED_PLUGIN_JAR:-MISSING}"
+echo "Runtime sha  : ${INSTALLED_PLUGIN_SHA}"
+echo "Class in jar : ${INSTALLED_PLUGIN_HAS_CLASS}"
+if [[ -n "${DEBUG_JVM_PORT}" ]]; then
+  echo "JDWP port    : ${DEBUG_JVM_PORT}"
+  echo "JDWP suspend : $([[ \"${DEBUG_JVM_SUSPEND}\" -eq 1 ]] && echo yes || echo no)"
+fi
+if [[ -n "${RUNTIME_REVISION_LINE}" ]]; then
+  echo "Revision log : ${RUNTIME_REVISION_LINE}"
+else
+  echo "Revision log : MISSING ([RELDBG] revision=... not found in test log)"
+fi
 echo "XML failures : ${XML_FAILURES}"
 echo "XML errors   : ${XML_ERRORS}"
 if [[ -n "${EXECUTION_ISSUE}" ]]; then
@@ -616,7 +685,11 @@ echo "============================================================"
 echo "Quick inspection commands:"
 echo "  tail -n 200 ${LOG_FILE}"
 echo "  tail -n 200 ${LISTENER_LOG}"
-echo "  rg -n \"FAIL|ERROR|Exception\" ${RESULT_DIR}/*.log"
+if command -v rg >/dev/null 2>&1; then
+  echo "  rg -n \"FAIL|ERROR|Exception\" ${RESULT_DIR}/*.log"
+else
+  echo "  grep -nE \"FAIL|ERROR|Exception\" ${RESULT_DIR}/*.log"
+fi
 
 if [[ "${RC}" -ne 0 ]]; then
   exit "${RC}"
