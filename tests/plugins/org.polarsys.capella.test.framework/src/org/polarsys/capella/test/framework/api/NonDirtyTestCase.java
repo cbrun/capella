@@ -27,6 +27,8 @@ import org.polarsys.capella.test.framework.helpers.GuiActions;
  */
 public abstract class NonDirtyTestCase extends BasicTestCase {
 
+  private static final String RACE_TRACE_PROPERTY = "capella.test.framework.trace.sessionLifecycle";
+
   private Set<String> modelsWithModifiedUndoContexts = new HashSet<>();
 
   @Override
@@ -62,11 +64,29 @@ public abstract class NonDirtyTestCase extends BasicTestCase {
 
   protected void undoAllChanges() {
     for (String testModel : getRequiredTestModels()) {
-      Session session = getSession(testModel);
+      Session session = AbstractProvider.getExistingSessionForTestModel(testModel, this);
+      if (session == null) {
+        traceSessionLifecycle("skip-undo-no-session", testModel, null);
+        continue;
+      }
+      if (!session.isOpen()) {
+        traceSessionLifecycle("skip-undo-closed-session", testModel, session);
+        continue;
+      }
+
+      traceSessionLifecycle("undo-open-session", testModel, session);
       CommandStack commandStack = session.getTransactionalEditingDomain().getCommandStack();
       while (commandStack.canUndo()) {
         commandStack.undo();
       }
     }
+  }
+
+  private void traceSessionLifecycle(String event, String testModel, Session session) {
+    if (!Boolean.getBoolean(RACE_TRACE_PROPERTY)) {
+      return;
+    }
+    String state = session == null ? "null" : Boolean.toString(session.isOpen());
+    System.out.println("[SESSION-RACE] event=" + event + " testModel=" + testModel + " sessionOpen=" + state);
   }
 }

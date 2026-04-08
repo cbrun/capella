@@ -31,6 +31,7 @@ import org.polarsys.capella.test.framework.helpers.TestHelper;
 import org.polarsys.capella.test.framework.provider.ModelProvider;
 
 public class ModelProviderHelper {
+  private static final String RACE_TRACE_PROPERTY = "capella.test.framework.trace.sessionLifecycle";
   private IModelProvider modelProvider;
 
   private ModelProviderHelper() {
@@ -84,8 +85,11 @@ public class ModelProviderHelper {
   public void removeCapellaProject(String relativeModelPath, BasicTestArtefact artefact, boolean eraseProject) {
     Session session = AbstractProvider.getExistingSessionForTestModel(relativeModelPath, artefact);
     if (session.isOpen()) {
+      traceSessionLifecycle("close-before-delete", relativeModelPath, session);
       //GuiActions.saveSession(session);
       GuiActions.closeSession(session, false);
+      GuiActions.flushASyncGuiJobs();
+      traceSessionLifecycle("close-settled-before-delete", relativeModelPath, session);
     }
 
     IProject eclipseProject = AbstractProvider.getEclipseProjectForTestModel(relativeModelPath, artefact);
@@ -108,5 +112,13 @@ public class ModelProviderHelper {
     } catch (CoreException e) {
       e.printStackTrace();
     }
+  }
+
+  private void traceSessionLifecycle(String event, String relativeModelPath, Session session) {
+    if (!Boolean.getBoolean(RACE_TRACE_PROPERTY)) {
+      return;
+    }
+    System.out.println("[SESSION-RACE] event=" + event + " model=" + relativeModelPath + " sessionOpen="
+        + session.isOpen());
   }
 }
