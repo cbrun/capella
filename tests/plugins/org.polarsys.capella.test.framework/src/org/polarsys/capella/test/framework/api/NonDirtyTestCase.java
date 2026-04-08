@@ -26,7 +26,6 @@ import org.polarsys.capella.test.framework.helpers.GuiActions;
  * A test case that discard all changes to the test model at the end of test case.
  */
 public abstract class NonDirtyTestCase extends BasicTestCase {
-
   private Set<String> modelsWithModifiedUndoContexts = new HashSet<>();
 
   @Override
@@ -62,7 +61,16 @@ public abstract class NonDirtyTestCase extends BasicTestCase {
 
   protected void undoAllChanges() {
     for (String testModel : getRequiredTestModels()) {
-      Session session = getSession(testModel);
+      Session session = AbstractProvider.getExistingSessionForTestModel(testModel, this);
+      if (session == null) {
+        continue;
+      }
+      // Teardown must not reopen sessions just to undo changes. Cleanup may already be
+      // closing the model, and re-entering Sirius at that point races with shutdown.
+      if (!session.isOpen()) {
+        continue;
+      }
+
       CommandStack commandStack = session.getTransactionalEditingDomain().getCommandStack();
       while (commandStack.canUndo()) {
         commandStack.undo();

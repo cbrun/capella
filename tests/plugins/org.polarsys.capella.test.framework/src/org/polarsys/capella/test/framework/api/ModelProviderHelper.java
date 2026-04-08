@@ -86,6 +86,9 @@ public class ModelProviderHelper {
     if (session.isOpen()) {
       //GuiActions.saveSession(session);
       GuiActions.closeSession(session, false);
+      // Session close schedules follow-up UI work. Wait for it before deleting the
+      // project so teardown does not race with Sirius shutdown.
+      GuiActions.flushASyncGuiJobs();
     }
 
     IProject eclipseProject = AbstractProvider.getEclipseProjectForTestModel(relativeModelPath, artefact);
