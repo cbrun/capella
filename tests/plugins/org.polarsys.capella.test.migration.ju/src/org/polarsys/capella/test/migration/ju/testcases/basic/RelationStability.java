@@ -35,7 +35,6 @@ import org.eclipse.sirius.diagram.ui.internal.edit.parts.DEdgeBeginNameEditPart;
 import org.eclipse.sirius.diagram.ui.internal.edit.parts.DEdgeEndNameEditPart;
 import org.eclipse.sirius.diagram.ui.internal.edit.parts.DEdgeNameEditPart;
 import org.eclipse.swt.SWT;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -61,6 +60,8 @@ import junit.framework.AssertionFailedError;
  */
 @RunWith(value = Parameterized.class)
 public class RelationStability extends AbstractDiagramTestCase {
+
+  private static final String DIAGRAM_NAME = "[CDB] Data";
 
   private enum NavigableState {
     NONE_A2B_FIRST(false, false), NONE_B2A_FIRST(false, false), A2B(true, false), B2A(false, true), BOTH_A2B_FIRST(true,
@@ -103,6 +104,11 @@ public class RelationStability extends AbstractDiagramTestCase {
     }
   }
 
+  private record AssociationUiState(List<DDiagramElement> diagramElements, DDiagramElement classA, DDiagramElement classB,
+      DEdge association, PointList bendPoints, Rectangle beginLabelBounds, int beginLabelStyle,
+      Rectangle middleLabelBounds, Rectangle endLabelBounds, int endLabelStyle) {
+  }
+
   private static final String CLASS_ID_A = "2a30d109-d64f-4aa4-81f0-3b16e023c542";
   private static final String CLASS_ID_B = "ca411035-9f42-471e-bcc4-2f139ef39f6f";
 
@@ -111,15 +117,15 @@ public class RelationStability extends AbstractDiagramTestCase {
   private SessionContext context;
   private CDBDiagram cdb;
 
-  final private String filename;
-  final private PointList bendPointsExpected;
-  final private Rectangle beginLabelBoundsExpected;
-  final private int beginLabelStyleExpected;
-  final private Rectangle middleLabelBoundsExpected;
-  final private Rectangle endLabelBoundsExpected;
-  final private int endLabelStyleExpected;
-  final private Optional<EdgeArrows> sourceEdgeArrowExpected;
-  final private Optional<EdgeArrows> targetEdgeArrowExpected;
+  private final String filename;
+  private final PointList bendPointsExpected;
+  private final Rectangle beginLabelBoundsExpected;
+  private final int beginLabelStyleExpected;
+  private final Rectangle middleLabelBoundsExpected;
+  private final Rectangle endLabelBoundsExpected;
+  private final int endLabelStyleExpected;
+  private final Optional<EdgeArrows> sourceEdgeArrowExpected;
+  private final Optional<EdgeArrows> targetEdgeArrowExpected;
 
   private static EdgeArrows getBaseArrow(AggregationKind kind) {
     switch (kind) {
@@ -135,15 +141,14 @@ public class RelationStability extends AbstractDiagramTestCase {
   private static EdgeArrows getArrowWithNavigability(EdgeArrows initial, boolean isNavigable) {
     if (!isNavigable) {
       return initial;
-    } else {
-      switch (initial) {
-      case DIAMOND_LITERAL:
-        return EdgeArrows.INPUT_ARROW_WITH_DIAMOND_LITERAL;
-      case FILL_DIAMOND_LITERAL:
-        return EdgeArrows.INPUT_ARROW_WITH_FILL_DIAMOND_LITERAL;
-      default:
-        return EdgeArrows.INPUT_ARROW_LITERAL;
-      }
+    }
+    switch (initial) {
+    case DIAMOND_LITERAL:
+      return EdgeArrows.INPUT_ARROW_WITH_DIAMOND_LITERAL;
+    case FILL_DIAMOND_LITERAL:
+      return EdgeArrows.INPUT_ARROW_WITH_FILL_DIAMOND_LITERAL;
+    default:
+      return EdgeArrows.INPUT_ARROW_LITERAL;
     }
   }
 
@@ -160,7 +165,6 @@ public class RelationStability extends AbstractDiagramTestCase {
   static Collection<Object[]> getKindTestData() {
     return AggregationKind.VALUES.stream().flatMap(kindAtoB -> {
       return AggregationKind.VALUES.stream().map(kindBtoA -> {
-        // expected arrows
         EdgeArrows sourceEdgeArrows;
         EdgeArrows targetEdgeArrows;
         if (kindAtoB.equals(AggregationKind.UNSET) || kindBtoA.equals(AggregationKind.UNSET)) {
@@ -174,28 +178,19 @@ public class RelationStability extends AbstractDiagramTestCase {
           targetEdgeArrows = getArrowWithNavigability(getBaseArrow(kindBtoA), true);
         }
 
-        return new Object[] { //
-            getTestFilename(kindAtoB, kindBtoA, NavigableState.A2B, AbstractState.NONE), //
-            new PointList(new int[] { 58, 72, 120, 20, 170, 100, 260, 40, 300, 66 }), // bendpoints
-            new Rectangle(103, 47, 0, 0), // begin label bounds
-            SWT.NORMAL, // begin label style
-            new Rectangle(140, 30, 94, 16), // middle label bounds
-            new Rectangle(250, 50, 6, 15), // end label bounds
-            SWT.NORMAL, // end label style
-            Optional.of(sourceEdgeArrows), //
-            Optional.of(targetEdgeArrows), //
-        };
+        return new Object[] { getTestFilename(kindAtoB, kindBtoA, NavigableState.A2B, AbstractState.NONE),
+            new PointList(new int[] { 58, 72, 120, 20, 170, 100, 260, 40, 300, 66 }),
+            new Rectangle(103, 47, 0, 0), SWT.NORMAL, new Rectangle(140, 30, 94, 16),
+            new Rectangle(250, 50, 6, 15), SWT.NORMAL, Optional.of(sourceEdgeArrows), Optional.of(targetEdgeArrows), };
       });
     }).toList();
   }
 
   static Collection<Object[]> getNavigableTestData() {
-    return Arrays.stream(NavigableState.values()) //
-        .filter(navigableState -> !navigableState.equals(NavigableState.A2B))
+    return Arrays.stream(NavigableState.values()).filter(navigableState -> !navigableState.equals(NavigableState.A2B))
         .flatMap(navigableState -> {
-
-          // expected positions
-          Rectangle beginLabelBounds, endLabelBounds;
+          Rectangle beginLabelBounds;
+          Rectangle endLabelBounds;
           if (navigableState.isNavigableOnlyAtoB()) {
             beginLabelBounds = new Rectangle(103, 47, 0, 0);
           } else {
@@ -215,23 +210,15 @@ public class RelationStability extends AbstractDiagramTestCase {
                 AggregationKind kindAtoB = kinds[0];
                 AggregationKind kindBtoA = kinds[1];
 
-                // expected arrows
                 EdgeArrows sourceEdgeArrows = getArrowWithNavigability(getBaseArrow(kindAtoB),
                     navigableState.isNavigableBtoA());
                 EdgeArrows targetEdgeArrows = getArrowWithNavigability(getBaseArrow(kindBtoA),
                     navigableState.isNavigableAtoB());
 
-                return new Object[] { //
-                    getTestFilename(kindAtoB, kindBtoA, navigableState, AbstractState.NONE), //
-                    new PointList(new int[] { 58, 72, 120, 20, 170, 100, 260, 40, 300, 66 }), // bendpoints
-                    beginLabelBounds, //
-                    SWT.NORMAL, // begin label style
-                    new Rectangle(140, 30, 94, 16), // middle label bounds
-                    endLabelBounds, //
-                    SWT.NORMAL, // end label style
-                    Optional.of(sourceEdgeArrows), //
-                    Optional.of(targetEdgeArrows), //
-                };
+                return new Object[] { getTestFilename(kindAtoB, kindBtoA, navigableState, AbstractState.NONE),
+                    new PointList(new int[] { 58, 72, 120, 20, 170, 100, 260, 40, 300, 66 }), beginLabelBounds,
+                    SWT.NORMAL, new Rectangle(140, 30, 94, 16), endLabelBounds, SWT.NORMAL,
+                    Optional.of(sourceEdgeArrows), Optional.of(targetEdgeArrows), };
               });
         }).toList();
   }
@@ -239,8 +226,8 @@ public class RelationStability extends AbstractDiagramTestCase {
   static Collection<Object[]> getAbstractTestData() {
     return Stream.of(AbstractState.A2B, AbstractState.B2A, AbstractState.BOTH).flatMap(abstractState -> {
       return Arrays.stream(NavigableState.values()).map(navigableState -> {
-        // expected positions
-        Rectangle beginLabelBounds, endLabelBounds;
+        Rectangle beginLabelBounds;
+        Rectangle endLabelBounds;
         if (navigableState.isNavigableOnlyAtoB()) {
           beginLabelBounds = new Rectangle(103, 47, 0, 0);
         } else {
@@ -252,14 +239,13 @@ public class RelationStability extends AbstractDiagramTestCase {
           endLabelBounds = new Rectangle(250, 50, 6, 15);
         }
 
-        // expected arrows
         EdgeArrows sourceEdgeArrows = getArrowWithNavigability(EdgeArrows.NO_DECORATION_LITERAL,
             navigableState.isNavigableBtoA());
         EdgeArrows targetEdgeArrows = getArrowWithNavigability(EdgeArrows.NO_DECORATION_LITERAL,
             navigableState.isNavigableAtoB());
 
-        // expected label style
-        int beginLabelStyle, endLabelStyle;
+        int beginLabelStyle;
+        int endLabelStyle;
         if (abstractState.isAbstractBtoA()) {
           beginLabelStyle = SWT.ITALIC;
         } else {
@@ -271,17 +257,10 @@ public class RelationStability extends AbstractDiagramTestCase {
           endLabelStyle = SWT.NORMAL;
         }
 
-        return new Object[] { //
-            getTestFilename(AggregationKind.ASSOCIATION, AggregationKind.ASSOCIATION, navigableState, abstractState), //
-            new PointList(new int[] { 58, 72, 120, 20, 170, 100, 260, 40, 300, 66 }), // bendpoints
-            beginLabelBounds, //
-            beginLabelStyle, //
-            new Rectangle(140, 30, 94, 16), // middle label bounds
-            endLabelBounds, //
-            endLabelStyle, //
-            Optional.of(sourceEdgeArrows), //
-            Optional.of(targetEdgeArrows), //
-        };
+        return new Object[] { getTestFilename(AggregationKind.ASSOCIATION, AggregationKind.ASSOCIATION, navigableState,
+            abstractState), new PointList(new int[] { 58, 72, 120, 20, 170, 100, 260, 40, 300, 66 }),
+            beginLabelBounds, beginLabelStyle, new Rectangle(140, 30, 94, 16), endLabelBounds, endLabelStyle,
+            Optional.of(sourceEdgeArrows), Optional.of(targetEdgeArrows), };
       });
     }).toList();
   }
@@ -326,12 +305,6 @@ public class RelationStability extends AbstractDiagramTestCase {
     project = IResourceHelpers.getEclipseProjectInWorkspace(getRequiredTestModel());
   }
 
-  @After
-  @Override
-  public void tearDown() throws Exception {
-    super.tearDown();
-  }
-
   private String pointsToString(PointList points) {
     ArrayList<String> pointsArrayList = new ArrayList<>();
     for (int i = 0; i < points.size(); ++i) {
@@ -340,15 +313,22 @@ public class RelationStability extends AbstractDiagramTestCase {
     return "{" + String.join(", ", pointsArrayList) + "}";
   }
 
-  private void assertPointsEquals(String message, PointList expected, PointList actual) {
+  private boolean pointsEqual(PointList expected, PointList actual) {
     int len = expected.size();
     if (len != actual.size()) {
-      failNotEquals(message, pointsToString(expected), pointsToString(actual));
+      return false;
     }
     for (int i = 0; i < len; ++i) {
       if (!expected.getPoint(i).equals(actual.getPoint(i))) {
-        failNotEquals(message, pointsToString(expected), pointsToString(actual));
+        return false;
       }
+    }
+    return true;
+  }
+
+  private void assertPointsEquals(String message, PointList expected, PointList actual) {
+    if (!pointsEqual(expected, actual)) {
+      failNotEquals(message, pointsToString(expected), pointsToString(actual));
     }
   }
 
@@ -389,71 +369,89 @@ public class RelationStability extends AbstractDiagramTestCase {
   }
 
   private boolean isAssociation(DDiagramElement diagramElement) {
-    return diagramElement.getTarget() instanceof Association association;
+    return diagramElement.getTarget() instanceof Association;
   }
 
   private Supplier<AssertionFailedError> getFailLambda(String message) {
     return () -> new AssertionFailedError(message);
   }
 
+  private DDiagramElement findClassA(List<DDiagramElement> diagramElements, String checkpoint) {
+    return diagramElements.stream().filter(this::isClassA).findFirst()
+        .orElseThrow(getFailLambda("The class A was not found on the diagram after the migration at " + checkpoint));
+  }
+
+  private DDiagramElement findClassB(List<DDiagramElement> diagramElements, String checkpoint) {
+    return diagramElements.stream().filter(this::isClassB).findFirst()
+        .orElseThrow(getFailLambda("The class B was not found on the diagram after the migration at " + checkpoint));
+  }
+
+  private DEdge findAssociation(List<DDiagramElement> diagramElements, String checkpoint) {
+    return diagramElements.stream().filter(this::isAssociation).filter(DEdge.class::isInstance).map(DEdge.class::cast)
+        .findFirst()
+        .orElseThrow(getFailLambda("The association was not found on the diagram after the migration at " + checkpoint));
+  }
+
+  private AssociationUiState captureUiState(String checkpoint) {
+    List<DDiagramElement> diagramElements = new ArrayList<>(cdb.getDiagram().getOwnedDiagramElements());
+    DDiagramElement classA = findClassA(diagramElements, checkpoint);
+    DDiagramElement classB = findClassB(diagramElements, checkpoint);
+    DEdge association = findAssociation(diagramElements, checkpoint);
+    GraphicalEditPart associationEditPart = (GraphicalEditPart) DiagramServices.getDiagramServices().getEditPart(association);
+    if (associationEditPart == null) {
+      throw new AssertionFailedError("The association edit part was not found after the migration at " + checkpoint);
+    }
+    GraphicalEditPart beginLabelEditPart = associationEditPart.getChildren().stream()
+        .filter(DEdgeBeginNameEditPart.class::isInstance).map(GraphicalEditPart.class::cast).findFirst().orElseThrow(
+            getFailLambda("The association begin label was not found after the migration at " + checkpoint));
+    GraphicalEditPart middleLabelEditPart = associationEditPart.getChildren().stream()
+        .filter(DEdgeNameEditPart.class::isInstance).map(GraphicalEditPart.class::cast).findFirst().orElseThrow(
+            getFailLambda("The association middle label was not found after the migration at " + checkpoint));
+    GraphicalEditPart endLabelEditPart = associationEditPart.getChildren().stream()
+        .filter(DEdgeEndNameEditPart.class::isInstance).map(GraphicalEditPart.class::cast).findFirst().orElseThrow(
+            getFailLambda("The association end label was not found after the migration at " + checkpoint));
+
+    return new AssociationUiState(diagramElements, classA, classB, association,
+        ((Connection) associationEditPart.getFigure()).getPoints().getCopy(), beginLabelEditPart.getFigure().getBounds().getCopy(),
+        beginLabelEditPart.getFigure().getFont().getFontData()[0].getStyle(),
+        middleLabelEditPart.getFigure().getBounds().getCopy(), endLabelEditPart.getFigure().getBounds().getCopy(),
+        endLabelEditPart.getFigure().getFont().getFontData()[0].getStyle());
+  }
+
+  private void assertAssociationModel(AssociationUiState uiState) {
+    assertEquals("The number of diagram element after migration is wrong", 3, uiState.diagramElements().size());
+    assertEquals("The association source node after migration is wrong", uiState.classA(), uiState.association().getSourceNode());
+    assertEquals("The association target node after migration is wrong", uiState.classB(), uiState.association().getTargetNode());
+
+    sourceEdgeArrowExpected.ifPresent(edgeArrowExpected -> {
+      assertEquals("Wrong association source arrow", edgeArrowExpected, uiState.association().getOwnedStyle().getSourceArrow());
+    });
+    targetEdgeArrowExpected.ifPresent(edgeArrowExpected -> {
+      assertEquals("Wrong association target arrow", edgeArrowExpected, uiState.association().getOwnedStyle().getTargetArrow());
+    });
+  }
+
   @Test
   @Override
   public void test() throws Exception {
-    // migration and opening
     MigrationHelper.migrateProject(project);
     session = getSession(getRequiredTestModel());
     context = new SessionContext(session);
-    cdb = CDBDiagram.openDiagram(context, "[CDB] Data");
+
+    // The migration asserts on the rendered relation, so the diagram must be reopened
+    // after migration and the UI queue drained before reading figures and labels.
+    cdb = CDBDiagram.openDiagram(context, DIAGRAM_NAME);
     GuiActions.flushASyncGuiThread();
 
-    // get and check Sirius elements
-    List<DDiagramElement> diagramElements = cdb.getDiagram().getOwnedDiagramElements();
-    DDiagramElement classA = diagramElements.stream().filter(this::isClassA).findFirst()
-        .orElseThrow(getFailLambda("The class A was not found on the diagram after the migration"));
-    DDiagramElement classB = diagramElements.stream().filter(this::isClassB).findFirst()
-        .orElseThrow(getFailLambda("The class B was not found on the diagram after the migration"));
-    DEdge association = diagramElements.stream().filter(this::isAssociation).findFirst() //
-        .filter(DEdge.class::isInstance).map(DEdge.class::cast)
-        .orElseThrow(getFailLambda("The association was not found on the diagram after the migration"));
+    AssociationUiState uiState = captureUiState("after-open");
+    assertAssociationModel(uiState);
 
-    assertEquals("The number of diagram element after migration is wrong", 3, diagramElements.size());
-    assertEquals("The association source node after migration is wrong", classA, association.getSourceNode());
-    assertEquals("The association target node after migration is wrong", classB, association.getTargetNode());
-
-    sourceEdgeArrowExpected.ifPresent(edgeArrowExpected -> {
-      assertEquals("Wrong association source arrow", edgeArrowExpected, association.getOwnedStyle().getSourceArrow());
-    });
-    targetEdgeArrowExpected.ifPresent(edgeArrowExpected -> {
-      assertEquals("Wrong association target arrow", edgeArrowExpected, association.getOwnedStyle().getTargetArrow());
-    });
-
-    // get edit parts
-    GraphicalEditPart associationEditPart = (GraphicalEditPart) DiagramServices.getDiagramServices()
-        .getEditPart(association);
-    GraphicalEditPart beginLabelEditPart = associationEditPart.getChildren().stream()
-        .filter(DEdgeBeginNameEditPart.class::isInstance).findFirst()
-        .orElseThrow(getFailLambda("The association begin label was not found after the migration"));
-    GraphicalEditPart middleLabelEditPart = associationEditPart.getChildren().stream()
-        .filter(DEdgeNameEditPart.class::isInstance).findFirst()
-        .orElseThrow(getFailLambda("The association middle label was not found after the migration"));
-    GraphicalEditPart endLabelEditPart = associationEditPart.getChildren().stream()
-        .filter(DEdgeEndNameEditPart.class::isInstance).findFirst()
-        .orElseThrow(getFailLambda("The association end label was not found after the migration"));
-
-    // get label position and bendpoints
-    PointList bendPoints = ((Connection) associationEditPart.getFigure()).getPoints();
-    Rectangle beginLabelBounds = beginLabelEditPart.getFigure().getBounds();
-    int beginLabelStyle = beginLabelEditPart.getFigure().getFont().getFontData()[0].getStyle();
-    Rectangle middleLabelBounds = middleLabelEditPart.getFigure().getBounds();
-    Rectangle endLabelBounds = endLabelEditPart.getFigure().getBounds();
-    int endLabelStyle = endLabelEditPart.getFigure().getFont().getFontData()[0].getStyle();
-
-    // check label position and bendpoints
-    assertPointsEquals("Wrong bendpoints after migration:", bendPointsExpected, bendPoints);
-    assertLabelBoundsEquals("Wrong begin label bounds after migration:", beginLabelBoundsExpected, beginLabelBounds);
-    assertLabelBoundsEquals("Wrong middle label bounds after migration:", middleLabelBoundsExpected, middleLabelBounds);
-    assertLabelBoundsEquals("Wrong end label bounds after migration:", endLabelBoundsExpected, endLabelBounds);
-    assertEquals("Wrong begin label style after migration", beginLabelStyleExpected, beginLabelStyle);
-    assertEquals("Wrong end label style after migration", endLabelStyleExpected, endLabelStyle);
+    assertPointsEquals("Wrong bendpoints after migration:", bendPointsExpected, uiState.bendPoints());
+    assertLabelBoundsEquals("Wrong begin label bounds after migration:", beginLabelBoundsExpected, uiState.beginLabelBounds());
+    assertLabelBoundsEquals("Wrong middle label bounds after migration:", middleLabelBoundsExpected,
+        uiState.middleLabelBounds());
+    assertLabelBoundsEquals("Wrong end label bounds after migration:", endLabelBoundsExpected, uiState.endLabelBounds());
+    assertEquals("Wrong begin label style after migration", beginLabelStyleExpected, uiState.beginLabelStyle());
+    assertEquals("Wrong end label style after migration", endLabelStyleExpected, uiState.endLabelStyle());
   }
 }
