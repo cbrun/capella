@@ -7,12 +7,9 @@ cd "${REPO_ROOT}"
 
 DISPLAY_NUM=29
 WATCH=0
-VNC_NO_AUTH=0
 TIMEOUT_MIN=20
 AUTO_BUILD=1
 UI_MODE=0
-MAXIMIZE_WORKBENCH=0
-LEGACY_DESKTOP_SETUP=0
 DEBUG_JVM_PORT=""
 DEBUG_JVM_SUSPEND=0
 PLUGIN=""
@@ -26,9 +23,6 @@ SAMPLES_GUARD_ENABLED=0
 SAMPLES_WAS_CLEAN=0
 XVNC_PID=""
 VIEWER_PID=""
-WM_PID=""
-MAXIMIZER_PID=""
-VNCCONFIG_PID=""
 
 usage() {
   cat <<'USAGE'
@@ -53,14 +47,11 @@ Options:
   --ui                    Use UI test application (default: non-UI)
   --display <N>           X display number (default: 29)
   --watch                 Open local vncviewer on the isolated display
-  --vnc-no-auth           Kept for compatibility (Jenkins parity is already no-auth)
-  --maximize-workbench    Start metacity and maximize workbench windows during a UI run
-  --legacy-desktop-setup  Run xrandr/xsetroot/vncconfig/xhost/metacity setup before UI tests
   --timeout-min <N>       Timeout in minutes (default: 20)
   --test-site-repo <path> Override test update-site repository path
   --debug-jvm-port <N>    Enable JDWP on the PDE test JVM on the given port
   --debug-jvm-suspend     Start the PDE test JVM suspended until a debugger attaches
-  --no-build              Skip auto-rebuild of test update site
+  --no-build              Reuse existing trusted local artifacts without rebuilding
   -h, --help              Show this help
 
 Example (LicenceTest):
@@ -70,9 +61,9 @@ Example (LicenceTest):
     --ui
 
 Custom testcase workflow:
-  1) Full rebuild once:
+  1) Trusted local artifact build once:
        scripts/prepare-product-jres.sh --java-major 21
-       mvn -B -V verify -Pfull -DskipTests
+       mvn -B -V verify -Pfull -DskipTests -Dcyclonedx.skip=true
   2) Refresh cached runtime and run one testcase:
        scripts/run-single-test-loop.sh \
          --plugin org.polarsys.capella.test.platform.ju \
@@ -85,9 +76,9 @@ Custom testcase workflow:
          --ui --no-build
 
 Runtime freshness proof:
-  This script prints the installed runtime bundle path, its sha256, whether it
-  contains the requested testcase class, and the first [RELDBG] revision banner
-  emitted by the testcase. Use those four lines before trusting any local result.
+  This script prints the installed runtime bundle path, the published test-site
+  bundle path, both sha256 values, and whether the testcase class is present in
+  both artifacts. Use that comparison before trusting any local result.
 USAGE
 }
 
@@ -218,15 +209,6 @@ refresh_test_feature() {
 
 cleanup() {
   cleanup_samples_changes
-  if [[ -n "${MAXIMIZER_PID}" ]]; then
-    kill "${MAXIMIZER_PID}" >/dev/null 2>&1 || true
-  fi
-  if [[ -n "${WM_PID}" ]]; then
-    kill "${WM_PID}" >/dev/null 2>&1 || true
-  fi
-  if [[ -n "${VNCCONFIG_PID}" ]]; then
-    kill "${VNCCONFIG_PID}" >/dev/null 2>&1 || true
-  fi
   if [[ -n "${VIEWER_PID}" ]]; then
     kill "${VIEWER_PID}" >/dev/null 2>&1 || true
   fi
@@ -255,18 +237,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --watch)
       WATCH=1
-      shift
-      ;;
-    --vnc-no-auth)
-      VNC_NO_AUTH=1
-      shift
-      ;;
-    --maximize-workbench)
-      MAXIMIZE_WORKBENCH=1
-      shift
-      ;;
-    --legacy-desktop-setup)
-      LEGACY_DESKTOP_SETUP=1
       shift
       ;;
     --timeout-min)
@@ -313,10 +283,6 @@ if [[ "${DEBUG_JVM_SUSPEND}" -eq 1 && -z "${DEBUG_JVM_PORT}" ]]; then
   exit 2
 fi
 
-if [[ "${VNC_NO_AUTH}" -eq 1 ]]; then
-  echo "Note: --vnc-no-auth is now a no-op (Jenkins parity already uses SecurityTypes=none)."
-fi
-
 for cmd in Xvnc timeout; do
   command -v "${cmd}" >/dev/null || {
     echo "Missing required command: ${cmd}"
@@ -331,11 +297,11 @@ if [[ "${AUTO_BUILD}" -eq 1 ]]; then
   }
 fi
 
-if [[ ! -d "${TEST_SITE_REPO}" ]]; then
+if [[ "${AUTO_BUILD}" -eq 0 && ! -d "${TEST_SITE_REPO}" ]]; then
   echo "Test update-site repository not found: ${TEST_SITE_REPO}"
   echo "Build commands to produce it:"
   echo "  scripts/prepare-product-jres.sh --java-major 21"
-  echo "  mvn -B -V verify -Pfull -DskipTests"
+  echo "  mvn -B -V verify -Pfull -DskipTests -Dcyclonedx.skip=true"
   exit 2
 fi
 
@@ -367,36 +333,10 @@ trap cleanup EXIT
 export DISPLAY=":${DISPLAY_NUM}"
 sleep 3
 
-if [[ "${MAXIMIZE_WORKBENCH}" -eq 1 ]]; then
-  if [[ "${UI_MODE}" -ne 1 ]]; then
-    echo "--maximize-workbench requires --ui."
-    exit 2
-  fi
-  for cmd in metacity wmctrl; do
-    command -v "${cmd}" >/dev/null || {
-      echo "Missing required command for --maximize-workbench: ${cmd}"
-      exit 2
-    }
-  done
-fi
-
-if [[ "${LEGACY_DESKTOP_SETUP}" -eq 1 ]]; then
-  if [[ "${UI_MODE}" -ne 1 ]]; then
-    echo "--legacy-desktop-setup requires --ui."
-    exit 2
-  fi
-  for cmd in xrandr xsetroot vncconfig xhost metacity; do
-    command -v "${cmd}" >/dev/null || {
-      echo "Missing required command for --legacy-desktop-setup: ${cmd}"
-      exit 2
-    }
-  done
-fi
-
 if [[ "${AUTO_BUILD}" -eq 1 ]]; then
   echo "== Rebuild Capella artifacts required by the test runtime =="
   JRE_PREP_CMD=(scripts/prepare-product-jres.sh --java-major 21)
-  BUILD_CMD=(mvn -B -V verify -Pfull -DskipTests)
+  BUILD_CMD=(mvn -B -V verify -Pfull -DskipTests -Dcyclonedx.skip=true)
   echo "JRE prep command: ${JRE_PREP_CMD[*]}"
   echo "Build command   : ${BUILD_CMD[*]}"
   set +e
@@ -424,13 +364,18 @@ if [[ "${AUTO_BUILD}" -eq 1 ]]; then
     echo "Use one of the following:"
     echo "  1) Rerun with existing artifacts:"
     echo "     scripts/run-single-test-loop.sh --plugin ${PLUGIN} --class ${CLASS_NAME} --no-build"
-    echo "  2) Rebuild full artifacts manually, then rerun:"
+    echo "  2) Rebuild trusted local artifacts manually, then rerun:"
     echo "     scripts/prepare-product-jres.sh --java-major 21"
-    echo "     mvn -B -V verify -Pfull"
+    echo "     mvn -B -V verify -Pfull -DskipTests -Dcyclonedx.skip=true"
     exit "${BUILD_RC}"
   fi
 else
   echo "== Rebuild skipped (--no-build) =="
+fi
+
+if [[ ! -d "${TEST_SITE_REPO}" ]]; then
+  echo "Test update-site repository not found after build: ${TEST_SITE_REPO}"
+  exit 2
 fi
 
 echo "== Refresh Capella test feature in cached runtime =="
@@ -459,14 +404,29 @@ fi
 INSTALLED_PLUGIN_JAR="$(find_installed_plugin_jar || true)"
 INSTALLED_PLUGIN_SHA="missing"
 INSTALLED_PLUGIN_HAS_CLASS="missing"
+REPO_PLUGIN_JAR="$(find "${TEST_SITE_REPO}/plugins" -maxdepth 1 -type f -name "${PLUGIN}_*.jar" | sort | tail -n 1 || true)"
+REPO_PLUGIN_SHA="missing"
+REPO_PLUGIN_HAS_CLASS="missing"
 if [[ -n "${INSTALLED_PLUGIN_JAR}" ]]; then
   INSTALLED_PLUGIN_SHA="$(sha256sum "${INSTALLED_PLUGIN_JAR}" | awk '{print $1}')"
   INSTALLED_PLUGIN_HAS_CLASS="$(jar_contains_class "${INSTALLED_PLUGIN_JAR}" "${CLASS_NAME}")"
+fi
+if [[ -n "${REPO_PLUGIN_JAR}" ]]; then
+  REPO_PLUGIN_SHA="$(sha256sum "${REPO_PLUGIN_JAR}" | awk '{print $1}')"
+  REPO_PLUGIN_HAS_CLASS="$(jar_contains_class "${REPO_PLUGIN_JAR}" "${CLASS_NAME}")"
+fi
+RUNTIME_MATCH_STATUS="mismatch"
+if [[ -n "${INSTALLED_PLUGIN_JAR}" && -n "${REPO_PLUGIN_JAR}" && "${INSTALLED_PLUGIN_SHA}" == "${REPO_PLUGIN_SHA}" ]]; then
+  RUNTIME_MATCH_STATUS="match"
 fi
 
 echo "Installed runtime bundle : ${INSTALLED_PLUGIN_JAR:-MISSING}"
 echo "Installed runtime sha256 : ${INSTALLED_PLUGIN_SHA}"
 echo "Installed class present  : ${INSTALLED_PLUGIN_HAS_CLASS}"
+echo "Published test-site jar  : ${REPO_PLUGIN_JAR:-MISSING}"
+echo "Published test-site sha  : ${REPO_PLUGIN_SHA}"
+echo "Published class present  : ${REPO_PLUGIN_HAS_CLASS}"
+echo "Runtime/test-site match  : ${RUNTIME_MATCH_STATUS}"
 
 echo "Monitor instructions:"
 echo "  1) Open a new terminal"
@@ -486,35 +446,6 @@ if [[ "${WATCH}" -eq 1 ]]; then
   else
     echo "Requested --watch, but no vncviewer found. Continuing headless."
   fi
-fi
-
-if [[ "${LEGACY_DESKTOP_SETUP}" -eq 1 ]]; then
-  echo "== Apply legacy desktop setup =="
-  xrandr -s 1920x1200 >/dev/null 2>&1 || true
-  xsetroot -solid grey >/dev/null 2>&1 || true
-  vncconfig -iconic >/dev/null 2>&1 &
-  VNCCONFIG_PID=$!
-  xhost + >/dev/null 2>&1 || true
-  sleep 2
-  metacity --replace --sm-disable --display="${DISPLAY}" >/dev/null 2>&1 &
-  WM_PID=$!
-  sleep 2
-fi
-
-if [[ "${MAXIMIZE_WORKBENCH}" -eq 1 ]]; then
-  echo "== Start metacity and maximize UI windows =="
-  metacity --sm-disable --replace >/dev/null 2>&1 &
-  WM_PID=$!
-  (
-    while true; do
-      while IFS= read -r window_id; do
-        [[ -n "${window_id}" ]] || continue
-        wmctrl -i -r "${window_id}" -b add,maximized_vert,maximized_horz >/dev/null 2>&1 || true
-      done < <(wmctrl -lx | awk '$3 != "metacity.Metacity" {print $1}')
-      sleep 1
-    done
-  ) &
-  MAXIMIZER_PID=$!
 fi
 
 MODE_LABEL="nonui"
@@ -641,12 +572,6 @@ if [[ -n "${EXECUTION_ISSUE}" ]]; then
   fi
 fi
 
-if command -v rg >/dev/null 2>&1; then
-  RUNTIME_REVISION_LINE="$(rg -m 1 '\[RELDBG\] revision=' "${LOG_FILE}" || true)"
-else
-  RUNTIME_REVISION_LINE="$(grep -m 1 '\[RELDBG\] revision=' "${LOG_FILE}" || true)"
-fi
-
 echo
 echo "============================================================"
 echo "SINGLE TEST SUMMARY"
@@ -662,15 +587,14 @@ echo "Listener log : ${LISTENER_LOG}"
 echo "JUnit XML    : ${XML_FILE}"
 echo "Runtime jar  : ${INSTALLED_PLUGIN_JAR:-MISSING}"
 echo "Runtime sha  : ${INSTALLED_PLUGIN_SHA}"
-echo "Class in jar : ${INSTALLED_PLUGIN_HAS_CLASS}"
+echo "Runtime class: ${INSTALLED_PLUGIN_HAS_CLASS}"
+echo "Test-site jar: ${REPO_PLUGIN_JAR:-MISSING}"
+echo "Test-site sha: ${REPO_PLUGIN_SHA}"
+echo "Test-site cls: ${REPO_PLUGIN_HAS_CLASS}"
+echo "Artifact sync: ${RUNTIME_MATCH_STATUS}"
 if [[ -n "${DEBUG_JVM_PORT}" ]]; then
   echo "JDWP port    : ${DEBUG_JVM_PORT}"
   echo "JDWP suspend : $([[ \"${DEBUG_JVM_SUSPEND}\" -eq 1 ]] && echo yes || echo no)"
-fi
-if [[ -n "${RUNTIME_REVISION_LINE}" ]]; then
-  echo "Revision log : ${RUNTIME_REVISION_LINE}"
-else
-  echo "Revision log : MISSING ([RELDBG] revision=... not found in test log)"
 fi
 echo "XML failures : ${XML_FAILURES}"
 echo "XML errors   : ${XML_ERRORS}"

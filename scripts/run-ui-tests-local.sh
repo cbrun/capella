@@ -9,7 +9,6 @@ DISPLAY_NUM=29
 WATCH=0
 SCOPE="full"
 TIMEOUT_MIN=60
-VNC_NO_AUTH=0
 PRODUCT_TAR=""
 TEST_SITE_REPO=""
 RUNTIME_DIR="${REPO_ROOT}/runtime"
@@ -23,14 +22,12 @@ usage() {
 Usage: scripts/run-ui-tests-local.sh [options]
 
 Run Capella UI/non-UI test suites locally on an isolated Xvnc display
-to match the GitHub self-hosted workflow behavior.
+to match the GitHub Actions workflow behavior.
 
 Options:
   --display <N>           X display number (default: 29)
   --watch                 Open local VNC viewer on the isolated display
-  --scope <name>          Suite scope: full | focused-failures | smoke (default: full)
-  --smoke                 Compatibility alias for --scope smoke
-  --vnc-no-auth           Kept for compatibility (Jenkins parity is already no-auth)
+  --scope <name>          Suite scope: full | focused-failures (default: full)
   --timeout-min <N>       Per-suite timeout in minutes (default: 60)
   --product-tar <path>    Override Linux product tarball path
   --test-site-repo <path> Override test update-site repository path
@@ -95,18 +92,9 @@ while [[ $# -gt 0 ]]; do
       WATCH=1
       shift
       ;;
-    --smoke)
-      SCOPE="smoke"
-      shift
-      ;;
     --scope)
       SCOPE="$2"
-      shift
-      shift
-      ;;
-    --vnc-no-auth)
-      VNC_NO_AUTH=1
-      shift
+      shift 2
       ;;
     --timeout-min)
       TIMEOUT_MIN="$2"
@@ -133,18 +121,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "${SCOPE}" in
-  full|focused-failures|smoke)
+  full|focused-failures)
     ;;
   *)
     echo "Unsupported --scope value: ${SCOPE}"
-    echo "Expected one of: full, focused-failures, smoke"
+    echo "Expected one of: full, focused-failures"
     exit 2
     ;;
 esac
-
-if [[ "${VNC_NO_AUTH}" -eq 1 ]]; then
-  echo "Note: --vnc-no-auth is now a no-op (Jenkins parity already uses SecurityTypes=none)."
-fi
 
 for cmd in Xvnc tar timeout; do
   command -v "$cmd" >/dev/null || {
@@ -188,7 +172,6 @@ echo "Test repo  : ${TEST_SITE_REPO}"
 echo "Display    : :${DISPLAY_NUM} (isolated from your desktop)"
 echo "Scope      : ${SCOPE}"
 echo "Timeout    : ${TIMEOUT_MIN} minutes per suite"
-echo "VNC no auth: ${VNC_NO_AUTH}"
 echo
 
 rm -rf "${RUNTIME_DIR}" "${RESULT_DIR}" "${WORK_BASE}"
@@ -347,12 +330,7 @@ run_suite_set() {
 }
 
 run_suite_set ui Warmup org.polarsys.capella.test.platform.ju org.polarsys.capella.test.platform.ju.testcases.CapellaPlatformVersionNotNull
-
-if [[ "${SCOPE}" == "smoke" ]]; then
-  run_suite_set ui ModelQueriesValidation org.polarsys.capella.test.suites.ju org.polarsys.capella.test.business.queries.ju.testSuites.main.BusinessQueryTestSuite
-  run_suite_set ui Views org.polarsys.capella.test.suites.ju org.polarsys.capella.test.model.ju.testsuites.main.ModelTestSuite
-  run_suite_set ui NotUINavigator org.polarsys.capella.test.suites.ju org.polarsys.capella.test.navigator.ju.testsuites.main.NavigatorTestSuite
-elif [[ "${SCOPE}" == "focused-failures" ]]; then
+if [[ "${SCOPE}" == "focused-failures" ]]; then
   run_suite_set ui FocusedFailures org.polarsys.capella.test.platform.ju org.polarsys.capella.test.platform.ju.testcases.InvalidPreferencesInitializer
   run_suite_set ui FocusedFailures org.polarsys.capella.test.suites.ju org.polarsys.capella.test.migration.ju.testcases.basic.SysmodelMigrationLayout
   run_suite_set ui FocusedFailures org.polarsys.capella.test.suites.ju org.polarsys.capella.test.navigator.ju.DefaultLayout
