@@ -20,6 +20,9 @@ permissions:
   contents: write
   checks: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,7 +32,6 @@ jobs:
         working-directory: .
 
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
       MAVEN_OPTS: -Xmx2g
       # Pin the mutable CBI targetplatform nightly URL for reproducibility.
       CBI_TPD_PIN: https://download.eclipse.org/cbi/updates/tpd/nightly/N202501210845
@@ -201,12 +203,10 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
     steps:
       - name: Download packaged product archives
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: capella-packaged-products
           path: artifacts/capella-packaged-products
@@ -269,7 +269,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 720
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
       LANG: en_US.UTF-8
 
     steps:
@@ -277,13 +276,13 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Download Linux product artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: capella-product-linux-x86_64
           path: artifacts/capella-product-linux-x86_64
 
       - name: Download update-sites artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: capella-update-sites
           path: artifacts/capella-update-sites
