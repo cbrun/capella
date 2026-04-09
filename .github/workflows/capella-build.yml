@@ -37,17 +37,69 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java 21 (Temurin)
-        uses: actions/setup-java@v4
+      - name: Set up Java 17 and 21 with Maven toolchains
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: |
+            17
+            21
+          mvn-toolchain-vendor: temurin
           cache: maven
 
       - name: Show toolchain versions
         run: |
           java -version
           mvn -version
+          echo "JAVA_HOME_17_X64=${JAVA_HOME_17_X64:-missing}"
+          echo "JAVA_HOME_21_X64=${JAVA_HOME_21_X64:-missing}"
+          test -f "$HOME/.m2/toolchains.xml"
+          sed -n '1,200p' "$HOME/.m2/toolchains.xml"
+
+      - name: Prime and sanitize known malformed Maven POMs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.request import urlopen
+
+          repo_root = Path.home() / ".m2" / "repository"
+          artifacts = {
+              "org/apache/commons/commons-parent/34/commons-parent-34.pom":
+                  "https://repo.maven.apache.org/maven2/org/apache/commons/commons-parent/34/commons-parent-34.pom",
+              "org/apache/commons/commons-parent/42/commons-parent-42.pom":
+                  "https://repo.maven.apache.org/maven2/org/apache/commons/commons-parent/42/commons-parent-42.pom",
+              "org/apache/commons/commons-parent/48/commons-parent-48.pom":
+                  "https://repo.maven.apache.org/maven2/org/apache/commons/commons-parent/48/commons-parent-48.pom",
+              "org/apache/commons/commons-parent/52/commons-parent-52.pom":
+                  "https://repo.maven.apache.org/maven2/org/apache/commons/commons-parent/52/commons-parent-52.pom",
+              "jakarta/activation/jakarta.activation-api/1.2.2/jakarta.activation-api-1.2.2.pom":
+                  "https://repo.maven.apache.org/maven2/jakarta/activation/jakarta.activation-api/1.2.2/jakarta.activation-api-1.2.2.pom",
+          }
+
+          bom = b"\xef\xbb\xbf"
+          sanitized = []
+
+          for relative_path, url in artifacts.items():
+              target = repo_root / relative_path
+              if not target.exists():
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  with urlopen(url) as response:
+                      target.write_bytes(response.read())
+
+              data = target.read_bytes()
+              if data.startswith(bom):
+                  target.write_bytes(data[len(bom):])
+                  sanitized.append(str(target))
+
+          if sanitized:
+              print("Removed UTF-8 BOM from:")
+              for path in sanitized:
+                  print(path)
+          else:
+              print("No malformed cached POM required sanitizing.")
+          PY
 
       - name: Pin target-platform converter repository URL
         run: |
