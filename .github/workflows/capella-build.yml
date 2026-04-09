@@ -277,9 +277,6 @@ jobs:
         shell: bash
         env:
           TEST_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.test_scope || 'full' }}
-          JAVA_TOOL_OPTIONS: >-
-            -Dcapella.test.migration.relation.trace=true
-            -Dcapella.test.migration.relation.trace.uiQueue=true
         run: |
           set -euo pipefail
           scripts/run-ui-tests-ubuntu2404.sh \

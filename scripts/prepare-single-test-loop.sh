@@ -30,7 +30,7 @@ Default inputs:
 
 Typical workflow:
   1) scripts/prepare-product-jres.sh --java-major 21
-  2) mvn -B -V verify -Pfull -DskipTests
+  2) mvn -B -V verify -Pfull -DskipTests -Dcyclonedx.skip=true
   3) scripts/prepare-single-test-loop.sh
   4) scripts/run-single-test-loop.sh --plugin <id> --class <fqcn> [--ui] --no-build
 USAGE
@@ -94,9 +94,9 @@ fi
 if [[ ! -d "${TEST_SITE_REPO}" ]]; then
   echo "Test update-site repository not found: ${TEST_SITE_REPO}"
   echo
-  echo "Build commands to produce it:"
+  echo "Trusted local artifact build commands to produce it:"
   echo "  scripts/prepare-product-jres.sh --java-major 21"
-  echo "  mvn -B -V verify -Pfull -DskipTests"
+  echo "  mvn -B -V verify -Pfull -DskipTests -Dcyclonedx.skip=true"
   exit 2
 fi
 
@@ -138,4 +138,4 @@ echo "Next step (LicenceTest example):"
 echo "  scripts/run-single-test-loop.sh --plugin org.polarsys.capella.test.platform.ju --class org.polarsys.capella.test.platform.ju.testcases.LicenceTest --ui"
 echo
 echo "To monitor UI execution on isolated desktop:"
-echo "  scripts/run-single-test-loop.sh --plugin org.polarsys.capella.test.platform.ju --class org.polarsys.capella.test.platform.ju.testcases.LicenceTest --ui --watch --vnc-no-auth"
+echo "  scripts/run-single-test-loop.sh --plugin org.polarsys.capella.test.platform.ju --class org.polarsys.capella.test.platform.ju.testcases.LicenceTest --ui --watch"

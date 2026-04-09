@@ -24,7 +24,7 @@ Docker options:
 
 Forwarded args (after --) are passed to scripts/run-ui-tests-local.sh.
 Common forwarded args:
-  --scope full|focused-failures|smoke
+  --scope full|focused-failures
   --product-tar <path>
   --test-site-repo <path>
   --timeout-min <N>
