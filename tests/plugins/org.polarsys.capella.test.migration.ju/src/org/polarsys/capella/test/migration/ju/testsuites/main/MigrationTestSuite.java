@@ -40,9 +40,6 @@ import junit.framework.JUnit4TestAdapter;
 import junit.framework.Test;
 
 public class MigrationTestSuite extends BasicTestSuite {
-  private static final boolean RELATION_ONLY_MODE = !System.getProperty("capella.test.migration.relation.filter", "")
-      .trim().isEmpty();
-
   public MigrationTestSuite() {
     addTest(new JUnit4TestAdapter(RelationStability.class));
   }
@@ -55,9 +52,6 @@ public class MigrationTestSuite extends BasicTestSuite {
 
   @Override
   protected List<BasicTestArtefact> getTests() {
-    if (RELATION_ONLY_MODE) {
-      return new ArrayList<BasicTestArtefact>();
-    }
     List<BasicTestArtefact> tests = new ArrayList<BasicTestArtefact>();
     tests.add(new MigrationRequiredTest());
     tests.add(new EFactoryTest());
