@@ -238,8 +238,7 @@ jobs:
           if [[ -z "${safe_branch}" ]]; then
             safe_branch="branch"
           fi
-          branch_hash="$(printf '%s' "${branch}" | sha1sum | cut -c1-8)"
-          tag="ci-${safe_branch}-${branch_hash}-latest"
+          tag="${safe_branch}-latest"
           title="Capella CI latest (${branch})"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "title=${title}" >> "$GITHUB_OUTPUT"
