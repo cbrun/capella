@@ -18,8 +18,5 @@
    <feature id="org.polarsys.capella.core.egf.feature" version="7.0.1.qualifier">
       <category name="org.polarsys.capella.egf"/>
    </feature>
-   <feature id="org.polarsys.capella.core.egf.feature.source" version="7.0.1.qualifier">
-      <category name="org.polarsys.capella.egf"/>
-   </feature>
    <category-def name="org.polarsys.capella.egf" label="Capella EGF Patterns"/>
 </site>

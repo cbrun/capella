@@ -18,9 +18,6 @@
    <feature id="org.polarsys.capella.rcp" version="7.0.1.qualifier">
       <category name="org.polarsys.capella.rcp"/>
    </feature>
-   <feature id="org.polarsys.capella.rcp.source" version="7.0.1.qualifier">
-      <category name="org.polarsys.capella.rcp"/>
-   </feature>
    <feature id="org.polarsys.capella.doc.feature" version="7.0.1.qualifier">
       <category name="org.polarsys.capella.rcp"/>
    </feature>

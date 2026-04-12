@@ -51,7 +51,7 @@
    </plugins>
 
    <features>
-      <feature id="org.polarsys.capella.rcp.source"/>
+      <feature id="org.polarsys.capella.rcp"/>
    </features>
 
    <configurations>

@@ -68,7 +68,6 @@
 				<version>${tycho-version}</version>
 				<configuration>
 					<targetDefinitionIncludeSource>force</targetDefinitionIncludeSource>
-					<resolver>p2</resolver>
 					<dependency-resolution>
 						<optionalDependencies>ignore</optionalDependencies>
 					</dependency-resolution>
@@ -108,46 +107,6 @@
 						</environment>
 					</environments>
 				</configuration>
-			</plugin>
-			<!-- enable source feature generation -->
-			<plugin>
-				<groupId>org.eclipse.tycho</groupId>
-				<artifactId>tycho-source-plugin</artifactId>
-				<version>${tycho-version}</version>
-				<executions>
-					<execution>
-						<id>feature-source</id>
-						<phase>package</phase>
-						<goals>
-							<goal>feature-source</goal>
-						</goals>
-						<configuration>
-							<archive>
-								<addMavenDescriptor>false</addMavenDescriptor>
-							</archive>
-							<excludes>
-								<!-- provide bundles not containing any source code -->
-								<plugin id="org.polarsys.capella.core.data.res.edit" />
-								<plugin id="org.polarsys.capella.core.data.res.editor" />
-								<plugin id="org.polarsys.capella.ui.views" />
-								<feature id="org.eclipse.nebula.widgets.richtext.feature" />
-								<feature id="org.polarsys.kitalpha.richtext.widget.feature" />
-								<feature id="org.polarsys.capella.core.mylyn.feature" />
-							</excludes>
-						</configuration>
-					</execution>
-					<execution>
-						<id>plugin-source</id>
-						<goals>
-							<goal>plugin-source</goal>
-						</goals>
-						<configuration>
-							<archive>
-								<addMavenDescriptor>false</addMavenDescriptor>
-							</archive>
-						</configuration>
-					</execution>
-				</executions>
 			</plugin>
 			<plugin>
 				<groupId>org.eclipse.tycho</groupId>
