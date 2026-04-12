@@ -11,9 +11,9 @@ SCOPE="full"
 TIMEOUT_MIN=60
 PRODUCT_TAR=""
 TEST_SITE_REPO=""
-RUNTIME_DIR="${REPO_ROOT}/runtime"
-RESULT_DIR="${REPO_ROOT}/test-results"
-WORK_BASE="${REPO_ROOT}/test-workspaces"
+RUNTIME_DIR="${CAPELLA_UI_TEST_RUNTIME_DIR:-${REPO_ROOT}/runtime/ui-tests-local}"
+RESULT_DIR="${CAPELLA_UI_TEST_RESULT_DIR:-${REPO_ROOT}/test-results/ui-tests-local}"
+WORK_BASE="${CAPELLA_UI_TEST_WORK_BASE:-${REPO_ROOT}/test-workspaces/ui-tests-local}"
 SAMPLES_GUARD_ENABLED=0
 SAMPLES_WAS_CLEAN=0
 

@@ -10,6 +10,37 @@ DOCKERFILE_PATH="scripts/docker/ubuntu2404-ui-tests.Dockerfile"
 REBUILD_IMAGE=0
 DISPLAY_NUM=29
 
+stop_conflicting_containers() {
+  local -a ids=()
+  local -a summaries=()
+
+  while IFS=$'\t' read -r id name ports; do
+    [[ -n "${id}" ]] || continue
+    if [[ "${ports}" == *"127.0.0.1:${VNC_PORT}->"* ]]; then
+      ids+=("${id}")
+      summaries+=("${name:-${id}} :: ${ports}")
+    fi
+  done < <(docker ps --format '{{.ID}}\t{{.Names}}\t{{.Ports}}')
+
+  if [[ "${#ids[@]}" -eq 0 ]]; then
+    return
+  fi
+
+  echo "== Stop stale Docker VNC port owners =="
+  printf '%s\n' "${summaries[@]}"
+  docker stop "${ids[@]}" >/dev/null
+  echo
+}
+
+ensure_host_vnc_port_is_free() {
+  if ss -ltn "( sport = :${VNC_PORT} )" | grep -q LISTEN; then
+    echo "Port ${VNC_PORT} is still in use after Docker cleanup."
+    echo "Check the remaining listener with:"
+    echo "  ss -ltnp '( sport = :${VNC_PORT} )'"
+    exit 2
+  fi
+}
+
 usage() {
   cat <<'EOF'
 Usage: scripts/run-ui-tests-ubuntu2404.sh [docker-options] [-- <args passed to local script>]
@@ -97,6 +128,9 @@ if [[ "${REBUILD_IMAGE}" -eq 1 ]] || ! docker image inspect "${IMAGE_TAG}" >/dev
   echo "Dockerfile  : ${DOCKERFILE_PATH}"
   docker build -t "${IMAGE_TAG}" -f "${DOCKERFILE_PATH}" .
 fi
+
+stop_conflicting_containers
+ensure_host_vnc_port_is_free
 
 echo "== Ubuntu 24.04 UI parity run =="
 echo "Repo root   : ${REPO_ROOT}"
