@@ -188,6 +188,13 @@ CAPELLA_BIN="${CAPELLA_HOME}/capella"
   echo "Capella binary not found after unpack: ${CAPELLA_BIN}"
   exit 2
 }
+EMBEDDED_JAVA="${CAPELLA_HOME}/jre/bin/java"
+[[ -x "${EMBEDDED_JAVA}" ]] || {
+  echo "Embedded product JVM not found after unpack: ${EMBEDDED_JAVA}"
+  exit 2
+}
+echo "Embedded JVM:"
+"${EMBEDDED_JAVA}" -version 2>&1
 
 echo "== Install Capella test feature =="
 "${CAPELLA_BIN}" \

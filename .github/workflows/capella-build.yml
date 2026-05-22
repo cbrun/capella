@@ -112,13 +112,13 @@ jobs:
       - name: Generate target platform (.target from .targetplatform)
         run: mvn -B -V clean verify -f releng/plugins/org.polarsys.capella.targets/pom.xml
 
-      - name: Download and install Temurin JREs for Java 17 product packaging
+      - name: Download and install Temurin JREs for Java 21 product packaging
         shell: bash
         run: |
           chmod +x scripts/prepare-product-jres.sh
-          scripts/prepare-product-jres.sh --java-major 17 --clean
+          scripts/prepare-product-jres.sh --java-major 21 --clean
 
-      - name: Build and package (Tycho full reactor on Java 21, Java 17 product)
+      - name: Build and package (Tycho full reactor on Java 21, Java 21 product)
         run: mvn -B -V verify -Pfull
 
       - name: Verify packaged archives exist
@@ -142,7 +142,7 @@ jobs:
           check_pattern "$base/capella-*macosx*.tar.gz"
           check_pattern "$base/capella-*win32*.zip"
 
-      - name: Verify packaged Linux product runtime is Java 17
+      - name: Verify packaged Linux product runtime is Java 21
         shell: bash
         run: |
           set -euo pipefail
@@ -153,7 +153,7 @@ jobs:
           mkdir -p runtime-check
           tar -xzf "$product_tar" -C runtime-check
           runtime-check/capella/jre/bin/java -version 2>&1 | tee runtime-check/product-java-version.txt
-          runtime-check/capella/jre/bin/java -version 2>&1 | grep -q 'version "17\.'
+          runtime-check/capella/jre/bin/java -version 2>&1 | grep -q 'version "21\.'
 
       - name: Upload Linux x86_64 packaged product
         uses: actions/upload-artifact@v6
